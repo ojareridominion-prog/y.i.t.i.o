@@ -1,59 +1,80 @@
-#[file name]: main.py
+# ===================================================
+# FILE: main.py
+# Y.I.T.I.O BOT WITH PROPER WEBHOOK AND AUTO-PING
+# ===================================================
+
 import os
+import sys
+import asyncio
 import logging
 import random
-import asyncio
 from datetime import datetime, timedelta
+from typing import Optional
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, Update, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, PreCheckoutQuery, ContentType
+from aiogram.types import (
+    Message, Update, CallbackQuery, 
+    InlineKeyboardMarkup, InlineKeyboardButton, 
+    PreCheckoutQuery, ContentType, LabeledPrice,
+    BotCommand
+)
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from supabase import create_client, Client
-from aiogram.types import LabeledPrice
+import socket
+
+# Add current directory to path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Import pinger
+from ping import RenderPinger
 
 # ==================== CONFIG ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
-PROVIDER_TOKEN = os.environ.get("PROVIDER_TOKEN", "")  # Telegram Stars provider token
-ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")  # Separate admin token for API
-WEBHOOK_SECRET_TOKEN = os.environ.get("WEBHOOK_SECRET_TOKEN", "YOUR_WEBHOOK_SECRET")  # Add this
+PROVIDER_TOKEN = os.environ.get("PROVIDER_TOKEN", "")
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+WEBHOOK_SECRET_TOKEN = os.environ.get("WEBHOOK_SECRET_TOKEN", "YOUR_WEBHOOK_SECRET")
 
-# Initialize Clients
-app = FastAPI()
+# Initialize FastAPI
+app = FastAPI(title="Y.I.T.I.O Bot API")
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger("yitio_bot")
+
+# Initialize Bot and Dispatcher
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# Initialize Supabase if credentials exist
+supabase: Optional[Client] = None
+if SUPABASE_URL and SUPABASE_KEY:
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        logger.info("✅ Supabase connected successfully")
+    except Exception as e:
+        logger.error(f"❌ Failed to connect to Supabase: {e}")
+        supabase = None
+
+# CORS Middleware
 app.add_middleware(
-    CORSMiddleware, 
-    allow_origins=["*"], 
-    allow_methods=["*"], 
-    allow_headers=["*"]
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Helper function to get Render URL
-def get_render_url():
-    """Get the correct Render URL"""
-    # Try different environment variables Render provides
-    render_url = os.environ.get("RENDER_EXTERNAL_URL", "")
-    if render_url:
-        return render_url
-    
-    # Fallback to your Render service name
-    service_name = os.environ.get("RENDER_SERVICE_NAME", "y-i-t-i-o")
-    return f"https://{service_name}.onrender.com"
-
-class AdminUpload(StatesGroup):
-    waiting_video_url = State()
-    waiting_platform = State()
-
-PLATFORMS = ["YouTube", "TikTok", "Instagram"]
-CATEGORIES = ["All", "YouTube", "TikTok", "Instagram"]
+# Global pinger instance
+_pinger = None
 
 # ==================== HELPER FUNCTIONS ====================
 
@@ -69,7 +90,6 @@ def extract_video_id(url: str, platform: str) -> str:
                 return url.split("v=")[1].split("&")[0]
         elif platform == "TikTok":
             if "tiktok.com/@" in url:
-                # Extract video ID from TikTok URL
                 parts = url.split("/")
                 for part in parts:
                     if len(part) == 19 and part.isdigit():
@@ -106,20 +126,59 @@ def get_user_id_from_init_data(init_data: str):
             user_data = json.loads(parsed['user'][0])
             return user_data.get('id')
     except Exception as e:
-        logging.error(f"Error parsing initData: {e}")
+        logger.error(f"Error parsing initData: {e}")
     return None
 
-# ==================== WEBHOOK HELPERS ====================
+# ==================== AUTO-PING SETUP ====================
+
+async def setup_pinger():
+    """Setup the auto-pinger service"""
+    global _pinger
+    
+    # Don't run pinger if disabled
+    if os.environ.get("DISABLE_PINGER", "").lower() == "true":
+        logger.info("⚠️ Auto-pinger disabled by DISABLE_PINGER environment variable")
+        return
+    
+    try:
+        # Get the correct URL for pinging
+        webhook_url = os.environ.get("WEBHOOK_URL", "")
+        if not webhook_url:
+            # Auto-detect Render URL
+            service_name = os.environ.get("RENDER_SERVICE_NAME", "")
+            if service_name:
+                webhook_url = f"https://{service_name}.onrender.com/webhook"
+            else:
+                # Try to detect current service
+                render_url = os.environ.get("RENDER_EXTERNAL_URL", "")
+                if render_url:
+                    webhook_url = f"{render_url}/webhook"
+                else:
+                    webhook_url = "https://yitio-bot.onrender.com/webhook"
+        
+        # Extract base URL (remove /webhook)
+        base_url = webhook_url.replace("/webhook", "").rstrip('/')
+        logger.info(f"🌐 Pinger will use base URL: {base_url}")
+        
+        # Create and start pinger
+        _pinger = RenderPinger(ping_url=base_url, interval_minutes=8)  # Ping every 8 minutes
+        asyncio.create_task(_pinger.start())
+        logger.info("✅ Auto-pinger started successfully")
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to start pinger: {e}")
+
+# ==================== WEBHOOK ENDPOINTS ====================
 
 @app.post("/webhook")
 async def handle_webhook(request: Request):
     """Handles incoming messages from Telegram"""
     try:
         # Verify webhook secret if set
-        if WEBHOOK_SECRET_TOKEN:
+        if WEBHOOK_SECRET_TOKEN and WEBHOOK_SECRET_TOKEN != "YOUR_WEBHOOK_SECRET":
             secret_token = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
             if secret_token != WEBHOOK_SECRET_TOKEN:
-                logging.warning(f"Invalid webhook secret token: {secret_token}")
+                logger.warning(f"Invalid webhook secret token: {secret_token}")
                 return {"ok": False, "error": "Invalid secret token"}
         
         # Parse update
@@ -131,29 +190,54 @@ async def handle_webhook(request: Request):
         
         return {"ok": True}
     except Exception as e:
-        logging.error(f"Webhook Error: {e}")
+        logger.error(f"Webhook Error: {e}")
         return {"ok": False, "error": str(e)}
 
 @app.get("/set-webhook")
 async def set_webhook():
     """Set webhook URL dynamically"""
-    webhook_url = f"{get_render_url()}/webhook"
-    
     try:
+        # Get webhook URL
+        webhook_url = os.environ.get("WEBHOOK_URL", "")
+        if not webhook_url:
+            # Auto-detect Render URL
+            service_name = os.environ.get("RENDER_SERVICE_NAME", "")
+            if service_name:
+                webhook_url = f"https://{service_name}.onrender.com/webhook"
+            else:
+                render_url = os.environ.get("RENDER_EXTERNAL_URL", "")
+                if render_url:
+                    webhook_url = f"{render_url}/webhook"
+                else:
+                    webhook_url = "https://yitio-bot.onrender.com/webhook"
+        
+        logger.info(f"Setting webhook to: {webhook_url}")
+        
         await bot.set_webhook(
             url=webhook_url,
             drop_pending_updates=True,
             allowed_updates=["message", "callback_query", "pre_checkout_query"],
-            secret_token=WEBHOOK_SECRET_TOKEN  # Add secret token
+            secret_token=WEBHOOK_SECRET_TOKEN if WEBHOOK_SECRET_TOKEN != "YOUR_WEBHOOK_SECRET" else None
         )
+        
+        # Test webhook immediately
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                base_url = webhook_url.replace("/webhook", "")
+                response = await client.get(f"{base_url}/health")
+                logger.info(f"✅ Health check response: {response.status_code}")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not test health endpoint: {e}")
+        
         return {
             "status": "success", 
             "url": webhook_url,
             "message": "Webhook set successfully",
-            "secret_token_set": bool(WEBHOOK_SECRET_TOKEN)
+            "secret_token_set": bool(WEBHOOK_SECRET_TOKEN and WEBHOOK_SECRET_TOKEN != "YOUR_WEBHOOK_SECRET")
         }
     except Exception as e:
-        logging.error(f"Error setting webhook: {e}")
+        logger.error(f"Error setting webhook: {e}")
         return {
             "status": "error",
             "message": str(e)
@@ -177,14 +261,115 @@ async def webhook_info():
     except Exception as e:
         return {"error": str(e)}
 
-@app.get("/delete-webhook")
-async def delete_webhook():
-    """Delete webhook (for debugging)"""
+# ==================== HEALTH & ROOT ENDPOINTS ====================
+
+@app.get("/health")
+async def health_check():
+    """Enhanced health check endpoint"""
+    return {
+        "status": "healthy",
+        "service": "Y.I.T.I.O Bot",
+        "timestamp": datetime.utcnow().isoformat(),
+        "ping_service": "active" if _pinger else "inactive"
+    }
+
+@app.get("/")
+async def root():
+    """Root endpoint with service info"""
+    return {
+        "message": "Y.I.T.I.O Bot API",
+        "status": "running",
+        "timestamp": datetime.utcnow().isoformat(),
+        "endpoints": {
+            "health": "/health",
+            "set_webhook": "/set-webhook",
+            "webhook_info": "/webhook-info",
+            "api_videos": "/api/videos",
+            "api_check_premium": "/api/check-premium"
+        },
+        "ping_service": "active (every 8 minutes)" if _pinger else "inactive"
+    }
+
+# ==================== STARTUP & SHUTDOWN ====================
+
+@app.on_event("startup")
+async def startup_event():
+    """Run startup tasks"""
+    logger.info("🚀 Starting Y.I.T.I.O Bot...")
+    
+    # Set bot commands
+    commands = [
+        BotCommand(command="start", description="Start the bot"),
+        BotCommand(command="premium", description="Premium status & purchase")
+    ]
+    
+    if ADMIN_ID:
+        commands.append(BotCommand(command="admin", description="Admin panel"))
+    
     try:
-        result = await bot.delete_webhook(drop_pending_updates=True)
-        return {"success": True, "result": result}
+        await bot.set_my_commands(commands)
+        logger.info("✅ Bot commands set successfully")
     except Exception as e:
-        return {"error": str(e)}
+        logger.error(f"❌ Error setting commands: {e}")
+    
+    # Start pinger FIRST (so it can warm up the server)
+    await setup_pinger()
+    
+    # Wait a moment for pinger to initialize
+    await asyncio.sleep(2)
+    
+    # Auto-set webhook
+    webhook_url = os.environ.get("WEBHOOK_URL", "")
+    if not webhook_url:
+        # Auto-detect Render URL
+        service_name = os.environ.get("RENDER_SERVICE_NAME", "")
+        if service_name:
+            webhook_url = f"https://{service_name}.onrender.com/webhook"
+        else:
+            render_url = os.environ.get("RENDER_EXTERNAL_URL", "")
+            if render_url:
+                webhook_url = f"{render_url}/webhook"
+            else:
+                webhook_url = "https://yitio-bot.onrender.com/webhook"
+    
+    try:
+        await bot.set_webhook(
+            url=webhook_url,
+            drop_pending_updates=True,
+            allowed_updates=["message", "callback_query", "pre_checkout_query"],
+            secret_token=WEBHOOK_SECRET_TOKEN if WEBHOOK_SECRET_TOKEN != "YOUR_WEBHOOK_SECRET" else None
+        )
+        logger.info(f"✅ Webhook set to: {webhook_url}")
+        
+        # Test the webhook immediately
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(webhook_url.replace("/webhook", "/health"))
+                logger.info(f"✅ Health check response: {response.status_code}")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not test health endpoint: {e}")
+            
+    except Exception as e:
+        logger.error(f"❌ Error setting webhook: {e}")
+        # Fallback to polling if webhook fails (for development)
+        if os.environ.get("USE_POLLING", "").lower() == "true":
+            logger.info("⚠️ Falling back to polling mode...")
+            asyncio.create_task(dp.start_polling(bot))
+    
+    logger.info("✅ Bot startup complete!")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    global _pinger
+    logger.info("🛑 Shutting down...")
+    
+    if _pinger:
+        await _pinger.stop()
+    
+    await bot.session.close()
+    logger.info("✅ Cleanup complete")
 
 # ==================== PAYMENT HANDLERS (STARS) ====================
 
@@ -243,7 +428,7 @@ async def on_successful_payment(message: Message):
         )
         
     except Exception as e:
-        logging.error(f"Payment DB Error: {e}")
+        logger.error(f"Payment DB Error: {e}")
         await message.answer("Payment received, but there was an error activating premium. Please contact support.")
 
 # ==================== PREMIUM VERIFICATION ENDPOINTS ====================
@@ -252,6 +437,9 @@ async def on_successful_payment(message: Message):
 async def check_premium(user_id: int):
     """Check premium status"""
     try:
+        if not supabase:
+            return {"is_premium": False, "expires_at": None, "days_left": None}
+        
         result = supabase.table("users") \
             .select("*") \
             .eq("telegram_id", user_id) \
@@ -294,12 +482,12 @@ async def check_premium(user_id: int):
                         "days_left": days_left
                     }
             except Exception as e:
-                logging.error(f"Date parsing error: {e}")
+                logger.error(f"Date parsing error: {e}")
         
         return {"is_premium": False, "expires_at": None, "days_left": None}
         
     except Exception as e:
-        logging.error(f"Error in check_premium: {e}")
+        logger.error(f"Error in check_premium: {e}")
         return {"is_premium": False, "expires_at": None, "days_left": None}
 
 @app.get("/api/user-data")
@@ -343,7 +531,7 @@ async def get_user_data(request: Request):
         }
         
     except Exception as e:
-        logging.error(f"Error getting user data: {e}")
+        logger.error(f"Error getting user data: {e}")
         return {"user": None, "premium": False}
 
 # ==================== FRONTEND API ====================
@@ -351,6 +539,9 @@ async def get_user_data(request: Request):
 @app.get("/api/videos")
 async def get_videos(category: str = "All", limit: int = 50):
     """Get videos by category"""
+    if not supabase:
+        return []
+    
     query = supabase.table('videos').select('*')
     
     if category.lower() != "all":
@@ -361,363 +552,4 @@ async def get_videos(category: str = "All", limit: int = 50):
     data = res.data
     
     # Shuffle but maintain some order (like IMAGIFHUB)
-    if data:
-        # Split into groups and shuffle within groups
-        groups = [data[i:i+10] for i in range(0, len(data), 10)]
-        shuffled = []
-        for group in groups:
-            group_copy = group.copy()
-            random.shuffle(group_copy)
-            shuffled.extend(group_copy)
-        data = shuffled
     
-    return data[:limit]
-
-# ==================== ADMIN ENDPOINTS ====================
-
-@app.get("/api/admin/stats")
-async def admin_stats(request: Request):
-    """Admin statistics endpoint"""
-    # Simple auth check
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    
-    token = auth.replace("Bearer ", "").strip()
-    if token != ADMIN_TOKEN:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    
-    try:
-        # Get total videos by platform
-        youtube_res = supabase.table("videos").select("count", count="exact").eq("platform", "YouTube").execute()
-        tiktok_res = supabase.table("videos").select("count", count="exact").eq("platform", "TikTok").execute()
-        instagram_res = supabase.table("videos").select("count", count="exact").eq("platform", "Instagram").execute()
-        
-        # Get total users
-        users_res = supabase.table("users").select("count", count="exact").execute()
-        total_users = users_res.count or 0
-        
-        # Get premium users
-        premium_res = supabase.table("users").select("count", count="exact").eq("is_premium", True).execute()
-        premium_users = premium_res.count or 0
-        
-        # Get total payments
-        payments_res = supabase.table("payments").select("amount", "currency").eq("status", "completed").execute()
-        total_revenue = sum(p.get("amount", 0) for p in payments_res.data) if payments_res.data else 0
-        
-        return {
-            "videos": {
-                "youtube": youtube_res.count or 0,
-                "tiktok": tiktok_res.count or 0,
-                "instagram": instagram_res.count or 0,
-                "total": (youtube_res.count or 0) + (tiktok_res.count or 0) + (instagram_res.count or 0)
-            },
-            "users": {
-                "total": total_users,
-                "premium": premium_users,
-                "premium_percentage": (premium_users / total_users * 100) if total_users > 0 else 0
-            },
-            "revenue": total_revenue
-        }
-        
-    except Exception as e:
-        logging.error(f"Admin stats error: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-# ==================== BOT LOGIC ====================
-
-@dp.message(F.text == "/start")
-async def cmd_start(message: Message):
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Let's Go!", web_app={"url": "https://YOUR-GITHUB-USERNAME.github.io/yitio/"})],
-        [InlineKeyboardButton(text="📢 Official Channel", url="https://t.me/yitio_channel")]
-    ])
-    await message.answer(
-        "🎬 *Y.I.T.I.O - Your Infinite Video Stream*\n\n"
-        "Watch endless YouTube Shorts, TikTok, and Instagram Reels\n"
-        "All in one place, curated just for you!\n\n"
-        "Click 'Let's Go!' to start watching 🎥",
-        parse_mode="Markdown",
-        reply_markup=keyboard
-    )
-
-@dp.message(F.text == "/premium")
-async def cmd_premium(message: Message):
-    """Check premium status or purchase premium"""
-    telegram_id = message.from_user.id
-    
-    try:
-        user_result = supabase.table("users") \
-            .select("is_premium, premium_expires_at") \
-            .eq("telegram_id", telegram_id) \
-            .execute()
-        
-        if not user_result.data or len(user_result.data) == 0:
-            # User not in database - offer premium
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⭐ Get Premium", callback_data="get_premium")],
-                [InlineKeyboardButton(text="🎬 Open Y.I.T.I.O", web_app={"url": "https://YOUR-GITHUB-USERNAME.github.io/yitio/"})]
-            ])
-            await message.answer(
-                "✨ *Y.I.T.I.O Premium*\n\n"
-                "🔓 You are currently on the free plan.\n\n"
-                "✨ *Upgrade to Premium for:*\n"
-                "• 🚫 No ads\n"
-                "• 😁 Support the project\n\n"
-                "💫 *Price:* 149 Stars (30 days)\n\n"
-                "Click 'Get Premium' to upgrade!",
-                parse_mode="HTML",
-                reply_markup=keyboard
-            )
-            return
-        
-        user_data = user_result.data[0]
-        is_premium = user_data.get("is_premium", False)
-        premium_expires_at = user_data.get("premium_expires_at")
-        
-        # Handle boolean value properly
-        is_premium_bool = False
-        if isinstance(is_premium, bool):
-            is_premium_bool = is_premium
-        elif isinstance(is_premium, str):
-            is_premium_bool = is_premium.lower() == 'true'
-        elif isinstance(is_premium, int):
-            is_premium_bool = bool(is_premium)
-        
-        if is_premium_bool and premium_expires_at:
-            try:
-                expires_at_str = premium_expires_at
-                if expires_at_str.endswith('Z'):
-                    expires_at_str = expires_at_str.replace('Z', '+00:00')
-                
-                expires_at = datetime.fromisoformat(expires_at_str)
-                now = datetime.utcnow().replace(tzinfo=None)
-                
-                if expires_at.tzinfo is not None:
-                    expires_at = expires_at.replace(tzinfo=None)
-                
-                if expires_at > now:
-                    days_left = (expires_at - now).days
-                    await message.answer(
-                        f"✨ *Premium Status*\n\n"
-                        f"✅ You are a *Premium Member*!\n"
-                        f"⏳ Days remaining: *{days_left}* day(s)\n"
-                        f"📅 Expires on: {expires_at.strftime('%Y-%m-%d')}\n\n"
-                        f"Enjoy your ad-free experience! 🎉",
-                        parse_mode="HTML"
-                    )
-                    return
-            except Exception as e:
-                logging.error(f"Date parsing error: {e}")
-        
-        # If we get here, user is not premium
-        # If we get here, user is not premium
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⭐ Get Premium", callback_data="get_premium")],
-            [InlineKeyboardButton(text="🎬 Open Y.I.T.I.O", web_app={"url": "https://YOUR-GITHUB-USERNAME.github.io/yitio/"})]
-        ])
-        await message.answer(
-            "✨ *Y.I.T.I.O Premium*\n\n"
-            "🔓 You are currently on the free plan.\n\n"
-            "✨ *Upgrade to Premium for:*\n"
-            "• 🚫 No ads\n"
-            "• 😁 Support the project\n\n"
-            "💫 *Price:* 149 Stars (30 days)\n\n"
-            "Click 'Get Premium' to upgrade!",
-            parse_mode="HTML",
-            reply_markup=keyboard
-        )
-            
-    except Exception as e:
-        logging.error(f"Premium check error: {e}")
-        await message.answer("❌ There was an error checking your premium status.")
-
-@dp.callback_query(F.data == "get_premium")
-async def get_premium_callback(call: CallbackQuery):
-    """Create invoice for premium purchase"""
-    await call.answer()
-    
-    invoice_link = await bot.create_invoice_link(
-        title="Y.I.T.I.O Premium",
-        description="30 days of ad-free video streaming",
-        payload=f"premium_{call.from_user.id}",
-        provider_token=PROVIDER_TOKEN,
-        currency="XTR",
-        prices=[LabeledPrice(label="Premium Access", amount=149)]
-    )
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Pay Now", url=invoice_link)],
-        [InlineKeyboardButton(text="🔙 Back", callback_data="back_to_premium")]
-    ])
-    
-    await call.message.edit_text(
-        "✨ *Upgrade to Y.I.T.I.O Premium*\n\n"
-        "💫 *Price:* 149 Stars (30 days)\n\n"
-        "*Benefits:*\n"
-        "• 🚫 No ads\n"
-        "• 😁 Support the project\n\n"
-        "Click 'Pay Now' to complete your purchase.",
-        parse_mode="HTML",
-        reply_markup=keyboard
-    )
-
-@dp.callback_query(F.data == "back_to_premium")
-async def back_to_premium_callback(call: CallbackQuery):
-    """Go back to premium status screen"""
-    await call.answer()
-    await cmd_premium(call.message)
-
-# Handle deep linking for /start premium
-@dp.message(F.text.startswith("/start premium"))
-async def start_premium(message: Message):
-    await cmd_premium(message)
-
-# ==================== ADMIN COMMANDS ====================
-
-@dp.message(F.from_user.id == ADMIN_ID, F.text == "/admin")
-async def admin_cmd(message: Message, state: FSMContext):
-    await state.clear()
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📤 Add New Video", callback_data="add_video")]
-    ])
-    await message.answer("<b>Admin Control Panel</b>", reply_markup=kb, parse_mode="HTML")
-
-@dp.callback_query(F.data == "add_video")
-async def add_video_step1(call: CallbackQuery, state: FSMContext):
-    await call.message.edit_text("Please send the video URL (YouTube, TikTok, or Instagram):")
-    await state.set_state(AdminUpload.waiting_video_url)
-
-@dp.message(AdminUpload.waiting_video_url)
-async def add_video_step2(message: Message, state: FSMContext):
-    url = message.text.strip()
-    
-    # Check if URL already exists
-    existing = supabase.table('videos').select('*').eq('url', url).execute()
-    
-    if existing.data:
-        await message.answer("❌ This video URL already exists in the database!")
-        await state.clear()
-        return
-    
-    await state.update_data(url=url)
-    
-    # Ask for platform
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="YouTube", callback_data="platform_YouTube")],
-        [InlineKeyboardButton(text="TikTok", callback_data="platform_TikTok")],
-        [InlineKeyboardButton(text="Instagram", callback_data="platform_Instagram")]
-    ])
-    
-    await message.answer("Select the platform:", reply_markup=kb)
-    await state.set_state(AdminUpload.waiting_platform)
-
-@dp.callback_query(F.data.startswith("platform_"))
-async def add_video_final(call: CallbackQuery, state: FSMContext):
-    platform = call.data.split("_")[1]
-    user_data = await state.get_data()
-    url = user_data['url']
-    
-    # Save to database
-    supabase.table('videos').insert({
-        "url": url,
-        "platform": platform,
-        "embed_url": get_embed_url(url, platform),
-        "created_at": datetime.utcnow().isoformat()
-    }).execute()
-    
-    await call.message.edit_text(f"✅ Successfully added {platform} video!")
-    await state.clear()
-
-# ==================== HEALTH & STARTUP ====================
-
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy", "service": "Y.I.T.I.O Bot", "timestamp": datetime.utcnow().isoformat()}
-
-@app.get("/")
-async def root():
-    return {
-        "message": "Y.I.T.I.O Bot API",
-        "status": "running",
-        "endpoints": {
-            "health": "/health",
-            "set_webhook": "/set-webhook",
-            "webhook_info": "/webhook-info",
-            "delete_webhook": "/delete-webhook",
-            "api_videos": "/api/videos",
-            "api_check_premium": "/api/check-premium",
-            "api_user_data": "/api/user-data"
-        }
-    }
-
-@app.on_event("startup")
-async def startup_event():
-    """Startup tasks"""
-    logging.basicConfig(level=logging.INFO)
-    logging.info("🚀 Starting Y.I.T.I.O Bot...")
-    
-    # Set bot commands
-    from aiogram.types import BotCommand
-    commands = [
-        BotCommand(command="start", description="Start the bot"),
-        BotCommand(command="premium", description="Premium status & purchase")
-    ]
-    
-    if ADMIN_ID:
-        commands.append(BotCommand(command="admin", description="Admin panel"))
-    
-    try:
-        await bot.set_my_commands(commands)
-        logging.info("✅ Bot commands set successfully")
-    except Exception as e:
-        logging.error(f"❌ Error setting commands: {e}")
-    
-    # Auto-set webhook
-    try:
-        webhook_url = f"{get_render_url()}/webhook"
-        logging.info(f"Setting webhook to: {webhook_url}")
-        
-        # First delete existing webhook
-        await bot.delete_webhook(drop_pending_updates=True)
-        logging.info("✅ Old webhook deleted")
-        
-        # Set new webhook
-        await bot.set_webhook(
-            url=webhook_url,
-            drop_pending_updates=True,
-            allowed_updates=["message", "callback_query", "pre_checkout_query"],
-            secret_token=WEBHOOK_SECRET_TOKEN
-        )
-        logging.info(f"✅ Webhook set successfully with secret token: {bool(WEBHOOK_SECRET_TOKEN)}")
-        
-        # Verify webhook is set
-        webhook_info = await bot.get_webhook_info()
-        logging.info(f"📋 Webhook info: {webhook_info.url}")
-        if webhook_info.last_error_date:
-            logging.warning(f"⚠️ Last webhook error: {webhook_info.last_error_message}")
-        
-    except Exception as e:
-        logging.error(f"❌ Error setting webhook: {e}")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown"""
-    logging.info("🛑 Shutting down...")
-    await bot.session.close()
-    logging.info("✅ Cleanup complete")
-
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.environ.get("PORT", 10000))
-    host = os.environ.get("HOST", "0.0.0.0")
-    
-    logging.basicConfig(level=logging.INFO)
-    logging.info(f"🌐 Starting server on {host}:{port}")
-    uvicorn.run(
-        app, 
-        host=host, 
-        port=port,
-        timeout_keep_alive=65,
-        access_log=True
-    )
