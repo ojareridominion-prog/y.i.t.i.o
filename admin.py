@@ -14,7 +14,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from shared import bot, dp, supabase, logger, ADMIN_ID, ADMIN_TOKEN
-from main import extract_video_id, get_embed_url
+from utils import extract_video_id, get_embed_url  # <-- Changed from main.py to utils.py
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
