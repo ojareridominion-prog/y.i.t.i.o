@@ -23,10 +23,13 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # Import shared variables
 from shared import bot, dp, supabase, logger, ADMIN_ID
 
-# Import modules
+# Import modules - IMPORTANT: Import these after shared to avoid circular imports
 from ping import setup_pinger
 from webhook import router as webhook_router
 from admin import router as admin_router
+from utils import extract_video_id, get_embed_url, get_user_id_from_init_data  # <-- From utils now
+
+# Import handlers directly to register them
 import invoice
 import admin as admin_module
 
@@ -44,59 +47,6 @@ app.add_middleware(
 # Include routers
 app.include_router(webhook_router)
 app.include_router(admin_router)
-
-# ==================== HELPER FUNCTIONS ====================
-
-def extract_video_id(url: str, platform: str) -> str:
-    """Extract video ID from different platform URLs"""
-    try:
-        if platform == "YouTube":
-            if "youtube.com/shorts/" in url:
-                return url.split("shorts/")[1].split("?")[0]
-            elif "youtu.be/" in url:
-                return url.split("youtu.be/")[1].split("?")[0]
-            elif "v=" in url:
-                return url.split("v=")[1].split("&")[0]
-        elif platform == "TikTok":
-            if "tiktok.com/@" in url:
-                parts = url.split("/")
-                for part in parts:
-                    if len(part) == 19 and part.isdigit():
-                        return part
-                return parts[-1].split("?")[0]
-        elif platform == "Instagram":
-            if "instagram.com/reel/" in url:
-                return url.split("reel/")[1].split("/")[0].split("?")[0]
-            elif "instagram.com/p/" in url:
-                return url.split("p/")[1].split("/")[0].split("?")[0]
-    except:
-        pass
-    return ""
-
-def get_embed_url(url: str, platform: str) -> str:
-    """Convert URL to embeddable format"""
-    video_id = extract_video_id(url, platform)
-    
-    if platform == "YouTube":
-        return f"https://www.youtube.com/embed/{video_id}"
-    elif platform == "TikTok":
-        return f"https://www.tiktok.com/embed/v2/{video_id}"
-    elif platform == "Instagram":
-        return f"https://www.instagram.com/p/{video_id}/embed"
-    return url
-
-def get_user_id_from_init_data(init_data: str):
-    """Extract user ID from Telegram WebApp initData"""
-    try:
-        import urllib.parse
-        import json
-        parsed = urllib.parse.parse_qs(init_data)
-        if 'user' in parsed:
-            user_data = json.loads(parsed['user'][0])
-            return user_data.get('id')
-    except Exception as e:
-        logger.error(f"Error parsing initData: {e}")
-    return None
 
 # ==================== HEALTH & ROOT ENDPOINTS ====================
 
@@ -475,4 +425,4 @@ if __name__ == "__main__":
         # These settings help with Render's timeout issues
         timeout_keep_alive=65,
         access_log=True
-            )
+)
