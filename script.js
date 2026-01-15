@@ -1,6 +1,6 @@
 import { nativeAds } from './ads.js';
 
-const API_URL = "https://your-render-app.onrender.com"; // Change to your Render URL
+const API_URL = "https://y-i-t-i-o.onrender.com"; // Change to your Render URL
 let activeSwiper = null;
 let currentCategory = "All";
 
