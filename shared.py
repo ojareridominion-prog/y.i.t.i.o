@@ -10,7 +10,7 @@ from typing import Optional
 
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
-from supabase import Client
+from supabase import create_client, Client  # <-- FIXED IMPORT
 
 # Add current directory to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -41,7 +41,7 @@ dp = Dispatcher(storage=MemoryStorage()) if BOT_TOKEN else None
 supabase: Optional[Client] = None
 if SUPABASE_URL and SUPABASE_KEY:
     try:
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)  # <-- Now this will work
         logger.info("✅ Supabase connected successfully")
     except Exception as e:
         logger.error(f"❌ Failed to connect to Supabase: {e}")
