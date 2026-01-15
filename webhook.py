@@ -3,6 +3,7 @@
 # WEBHOOK HANDLERS FOR Y.I.T.I.O BOT
 # ===================================================
 
+import os  # <-- ADD THIS IMPORT AT THE TOP
 import asyncio
 import logging
 from datetime import datetime
@@ -14,11 +15,43 @@ from aiogram import types
 
 from shared import bot, dp, logger, WEBHOOK_URL, WEBHOOK_SECRET_TOKEN
 
-router = APIRouter(prefix="/webhook", tags=["webhook"])
+router = APIRouter()
 
-@router.post("")
+# ==================== /webhook ENDPOINTS (Original) ====================
+@router.post("/webhook")
 async def handle_webhook(request: Request):
-    """Handles incoming messages from Telegram"""
+    """Handles incoming messages from Telegram - Original endpoint"""
+    return await _handle_webhook_internal(request)
+
+@router.get("/webhook/set")
+async def set_webhook():
+    """Set webhook URL dynamically - Original endpoint"""
+    return await _set_webhook_internal()
+
+@router.get("/webhook/info")
+async def webhook_info():
+    """Check current webhook status - Original endpoint"""
+    return await _webhook_info_internal()
+
+# ==================== /api ENDPOINTS (Compatibility with token_bot) ====================
+@router.post("/api/telegram-webhook")
+async def handle_telegram_webhook(request: Request):
+    """Alternative webhook endpoint matching token_bot.py pattern"""
+    return await _handle_webhook_internal(request)
+
+@router.get("/api/set-webhook")
+async def api_set_webhook():
+    """Alternative set-webhook endpoint matching token_bot.py pattern"""
+    return await _set_webhook_internal()
+
+@router.get("/api/webhook-info")
+async def api_webhook_info():
+    """Alternative webhook info endpoint"""
+    return await _webhook_info_internal()
+
+# ==================== SHARED INTERNAL FUNCTIONS ====================
+async def _handle_webhook_internal(request: Request):
+    """Shared webhook handler logic"""
     try:
         # Verify webhook secret if set
         if WEBHOOK_SECRET_TOKEN and WEBHOOK_SECRET_TOKEN != "YOUR_WEBHOOK_SECRET":
@@ -39,9 +72,8 @@ async def handle_webhook(request: Request):
         logger.error(f"Webhook Error: {e}")
         return {"ok": False, "error": str(e)}
 
-@router.get("/set")
-async def set_webhook():
-    """Set webhook URL dynamically"""
+async def _set_webhook_internal():
+    """Shared set webhook logic"""
     try:
         # Get webhook URL
         webhook_url = WEBHOOK_URL
@@ -49,13 +81,14 @@ async def set_webhook():
             # Auto-detect Render URL
             service_name = os.environ.get("RENDER_SERVICE_NAME", "")
             if service_name:
-                webhook_url = f"https://{service_name}.onrender.com/webhook"
+                webhook_url = f"https://{service_name}.onrender.com/api/telegram-webhook"
             else:
                 render_url = os.environ.get("RENDER_EXTERNAL_URL", "")
                 if render_url:
-                    webhook_url = f"{render_url}/webhook"
+                    webhook_url = f"{render_url}/api/telegram-webhook"
                 else:
-                    webhook_url = "https://yitio-bot.onrender.com/webhook"
+                    # Use the current working pattern
+                    webhook_url = "https://y-i-t-i-o.onrender.com/api/telegram-webhook"
         
         logger.info(f"Setting webhook to: {webhook_url}")
         
@@ -69,7 +102,7 @@ async def set_webhook():
         # Test webhook immediately
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                base_url = webhook_url.replace("/webhook", "")
+                base_url = webhook_url.replace("/api/telegram-webhook", "")
                 response = await client.get(f"{base_url}/health")
                 logger.info(f"✅ Health check response: {response.status_code}")
         except Exception as e:
@@ -88,9 +121,8 @@ async def set_webhook():
             "message": str(e)
         }
 
-@router.get("/info")
-async def webhook_info():
-    """Check current webhook status"""
+async def _webhook_info_internal():
+    """Shared webhook info logic"""
     try:
         info = await bot.get_webhook_info()
         return {
