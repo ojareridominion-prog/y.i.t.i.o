@@ -509,4 +509,138 @@ async def start_premium(message: Message):
     await cmd_premium(message)
 
 # ==================== ADMIN COMMANDS ====================
+# ==================== ADMIN COMMANDS ====================
 
+@dp.message(F.from_user.id == ADMIN_ID, F.text == "/admin")
+async def admin_cmd(message: Message, state: FSMContext):
+    await state.clear()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📤 Add New Video", callback_data="add_video")]
+    ])
+    await message.answer("<b>Admin Control Panel</b>", reply_markup=kb, parse_mode="HTML")
+
+@dp.callback_query(F.data == "add_video")
+async def add_video_step1(call: CallbackQuery, state: FSMContext):
+    await call.message.edit_text("Please send the video URL (YouTube, TikTok, or Instagram):")
+    await state.set_state(AdminUpload.waiting_video_url)
+
+@dp.message(AdminUpload.waiting_video_url)
+async def add_video_step2(message: Message, state: FSMContext):
+    url = message.text.strip()
+    
+    # Check if URL already exists
+    existing = supabase.table('videos').select('*').eq('url', url).execute()
+    
+    if existing.data:
+        await message.answer("❌ This video URL already exists in the database!")
+        await state.clear()
+        return
+    
+    await state.update_data(url=url)
+    
+    # Ask for platform
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="YouTube", callback_data="platform_YouTube")],
+        [InlineKeyboardButton(text="TikTok", callback_data="platform_TikTok")],
+        [InlineKeyboardButton(text="Instagram", callback_data="platform_Instagram")]
+    ])
+    
+    await message.answer("Select the platform:", reply_markup=kb)
+    await state.set_state(AdminUpload.waiting_platform)
+
+@dp.callback_query(F.data.startswith("platform_"))
+async def add_video_final(call: CallbackQuery, state: FSMContext):
+    platform = call.data.split("_")[1]
+    user_data = await state.get_data()
+    url = user_data['url']
+    
+    # Save to database
+    supabase.table('videos').insert({
+        "url": url,
+        "platform": platform,
+        "embed_url": get_embed_url(url, platform),
+        "created_at": datetime.utcnow().isoformat()
+    }).execute()
+    
+    await call.message.edit_text(f"✅ Successfully added {platform} video!")
+    await state.clear()
+
+# ==================== HEALTH & STARTUP ====================
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "service": "Y.I.T.I.O Bot", "timestamp": datetime.utcnow().isoformat()}
+
+@app.get("/")
+async def root():
+    return {
+        "message": "Y.I.T.I.O Bot API",
+        "status": "running",
+        "endpoints": {
+            "health": "/health",
+            "set_webhook": "/set-webhook",
+            "api_videos": "/api/videos",
+            "api_check_premium": "/api/check-premium"
+        }
+    }
+
+@app.on_event("startup")
+async def startup_event():
+    """Startup tasks"""
+    logging.info("🚀 Starting Y.I.T.I.O Bot...")
+    
+    # Set bot commands
+    from aiogram.types import BotCommand
+    commands = [
+        BotCommand(command="start", description="Start the bot"),
+        BotCommand(command="premium", description="Premium status & purchase")
+    ]
+    
+    if ADMIN_ID:
+        commands.append(BotCommand(command="admin", description="Admin panel"))
+    
+    try:
+        await bot.set_my_commands(commands)
+        logging.info("✅ Bot commands set successfully")
+    except Exception as e:
+        logging.error(f"❌ Error setting commands: {e}")
+    
+    # Auto-set webhook
+    webhook_domain = os.environ.get("RENDER_EXTERNAL_URL", "")
+    if not webhook_domain:
+        service_name = os.environ.get("RENDER_SERVICE_NAME", "yitio-bot")
+        webhook_domain = f"https://{service_name}.onrender.com"
+    
+    webhook_url = f"{webhook_domain}/webhook"
+    
+    try:
+        await bot.set_webhook(
+            url=webhook_url,
+            drop_pending_updates=True,
+            allowed_updates=["message", "callback_query", "pre_checkout_query"]
+        )
+        logging.info(f"✅ Webhook set to: {webhook_url}")
+    except Exception as e:
+        logging.error(f"❌ Error setting webhook: {e}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    logging.info("🛑 Shutting down...")
+    await bot.session.close()
+    logging.info("✅ Cleanup complete")
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 10000))
+    host = os.environ.get("HOST", "0.0.0.0")
+    
+    logging.basicConfig(level=logging.INFO)
+    logging.info(f"🌐 Starting server on {host}:{port}")
+    uvicorn.run(
+        app, 
+        host=host, 
+        port=port,
+        timeout_keep_alive=65,
+        access_log=True
+                     )
