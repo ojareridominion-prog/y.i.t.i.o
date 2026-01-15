@@ -116,7 +116,7 @@ async def set_webhook():
     webhook_domain = os.environ.get("RENDER_EXTERNAL_URL", "")
     if not webhook_domain:
         service_name = os.environ.get("RENDER_SERVICE_NAME", "yitio-bot")
-        webhook_domain = f"https://{service_name}.onrender.com"
+        webhook_domain = f"https://y-i-t-i-o.onrender.com"
     
     webhook_url = f"{webhook_domain}/webhook"
     await bot.set_webhook(url=webhook_url, drop_pending_updates=True)
@@ -609,9 +609,9 @@ async def startup_event():
     webhook_domain = os.environ.get("RENDER_EXTERNAL_URL", "")
     if not webhook_domain:
         service_name = os.environ.get("RENDER_SERVICE_NAME", "yitio-bot")
-        webhook_domain = f"https://{service_name}.onrender.com"
+        webhook_domain = f"https://y-i-t-i-o.onrender.com"
     
-    webhook_url = f"{webhook_domain}/webhook"
+    webhook_url = f"https://y-i-t-i-o.onrender.com/webhook"
     
     try:
         await bot.set_webhook(
