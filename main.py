@@ -552,4 +552,320 @@ async def get_videos(category: str = "All", limit: int = 50):
     data = res.data
     
     # Shuffle but maintain some order (like IMAGIFHUB)
+    # Shuffle but maintain some order (like IMAGIFHUB)
+    if data:
+        # Split into groups and shuffle within groups
+        groups = [data[i:i+10] for i in range(0, len(data), 10)]
+        shuffled = []
+        for group in groups:
+            group_copy = group.copy()
+            random.shuffle(group_copy)
+            shuffled.extend(group_copy)
+        data = shuffled
     
+    return data[:limit]
+
+# ==================== ADMIN ENDPOINTS ====================
+
+@app.get("/api/admin/stats")
+async def admin_stats(request: Request):
+    """Admin statistics endpoint"""
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Database not connected")
+    
+    # Simple auth check
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    token = auth.replace("Bearer ", "").strip()
+    if token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    try:
+        # Get total videos by platform
+        youtube_res = supabase.table("videos").select("count", count="exact").eq("platform", "YouTube").execute()
+        tiktok_res = supabase.table("videos").select("count", count="exact").eq("platform", "TikTok").execute()
+        instagram_res = supabase.table("videos").select("count", count="exact").eq("platform", "Instagram").execute()
+        
+        # Get total users
+        users_res = supabase.table("users").select("count", count="exact").execute()
+        total_users = users_res.count or 0
+        
+        # Get premium users
+        premium_res = supabase.table("users").select("count", count="exact").eq("is_premium", True).execute()
+        premium_users = premium_res.count or 0
+        
+        # Get total payments
+        payments_res = supabase.table("payments").select("amount", "currency").eq("status", "completed").execute()
+        total_revenue = sum(p.get("amount", 0) for p in payments_res.data) if payments_res.data else 0
+        
+        return {
+            "videos": {
+                "youtube": youtube_res.count or 0,
+                "tiktok": tiktok_res.count or 0,
+                "instagram": instagram_res.count or 0,
+                "total": (youtube_res.count or 0) + (tiktok_res.count or 0) + (instagram_res.count or 0)
+            },
+            "users": {
+                "total": total_users,
+                "premium": premium_users,
+                "premium_percentage": (premium_users / total_users * 100) if total_users > 0 else 0
+            },
+            "revenue": total_revenue
+        }
+        
+    except Exception as e:
+        logger.error(f"Admin stats error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# ==================== BOT COMMAND HANDLERS ====================
+
+@dp.message(F.text == "/start")
+async def cmd_start(message: Message):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 Let's Go!", web_app={"url": "https://YOUR-GITHUB-USERNAME.github.io/yitio/"})],
+        [InlineKeyboardButton(text="📢 Official Channel", url="https://t.me/yitio_channel")]
+    ])
+    await message.answer(
+        "🎬 *Y.I.T.I.O - Your Infinite Video Stream*\n\n"
+        "Watch endless YouTube Shorts, TikTok, and Instagram Reels\n"
+        "All in one place, curated just for you!\n\n"
+        "Click 'Let's Go!' to start watching 🎥",
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+
+@dp.message(F.text == "/premium")
+async def cmd_premium(message: Message):
+    """Check premium status or purchase premium"""
+    telegram_id = message.from_user.id
+    
+    try:
+        if not supabase:
+            await message.answer("❌ Database not connected. Please try again later.")
+            return
+            
+        user_result = supabase.table("users") \
+            .select("is_premium, premium_expires_at") \
+            .eq("telegram_id", telegram_id) \
+            .execute()
+        
+        if not user_result.data or len(user_result.data) == 0:
+            # User not in database - offer premium
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⭐ Get Premium", callback_data="get_premium")],
+                [InlineKeyboardButton(text="🎬 Open Y.I.T.I.O", web_app={"url": "https://YOUR-GITHUB-USERNAME.github.io/yitio/"})]
+            ])
+            await message.answer(
+                "✨ *Y.I.T.I.O Premium*\n\n"
+                "🔓 You are currently on the free plan.\n\n"
+                "✨ *Upgrade to Premium for:*\n"
+                "• 🚫 No ads\n"
+                "• 😁 Support the project\n\n"
+                "💫 *Price:* 149 Stars (30 days)\n\n"
+                "Click 'Get Premium' to upgrade!",
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+            return
+        
+        user_data = user_result.data[0]
+        is_premium = user_data.get("is_premium", False)
+        premium_expires_at = user_data.get("premium_expires_at")
+        
+        # Handle boolean value properly
+        is_premium_bool = False
+        if isinstance(is_premium, bool):
+            is_premium_bool = is_premium
+        elif isinstance(is_premium, str):
+            is_premium_bool = is_premium.lower() == 'true'
+        elif isinstance(is_premium, int):
+            is_premium_bool = bool(is_premium)
+        
+        if is_premium_bool and premium_expires_at:
+            try:
+                expires_at_str = premium_expires_at
+                if expires_at_str.endswith('Z'):
+                    expires_at_str = expires_at_str.replace('Z', '+00:00')
+                
+                expires_at = datetime.fromisoformat(expires_at_str)
+                now = datetime.utcnow().replace(tzinfo=None)
+                
+                if expires_at.tzinfo is not None:
+                    expires_at = expires_at.replace(tzinfo=None)
+                
+                if expires_at > now:
+                    days_left = (expires_at - now).days
+                    await message.answer(
+                        f"✨ *Premium Status*\n\n"
+                        f"✅ You are a *Premium Member*!\n"
+                        f"⏳ Days remaining: *{days_left}* day(s)\n"
+                        f"📅 Expires on: {expires_at.strftime('%Y-%m-%d')}\n\n"
+                        f"Enjoy your ad-free experience! 🎉",
+                        parse_mode="HTML"
+                    )
+                    return
+            except Exception as e:
+                logger.error(f"Date parsing error: {e}")
+        
+        # If we get here, user is not premium
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⭐ Get Premium", callback_data="get_premium")],
+            [InlineKeyboardButton(text="🎬 Open Y.I.T.I.O", web_app={"url": "https://YOUR-GITHUB-USERNAME.github.io/yitio/"})]
+        ])
+        await message.answer(
+            "✨ *Y.I.T.I.O Premium*\n\n"
+            "🔓 You are currently on the free plan.\n\n"
+            "✨ *Upgrade to Premium for:*\n"
+            "• 🚫 No ads\n"
+            "• 😁 Support the project\n\n"
+            "💫 *Price:* 149 Stars (30 days)\n\n"
+            "Click 'Get Premium' to upgrade!",
+            parse_mode="HTML",
+            reply_markup=keyboard
+        )
+            
+    except Exception as e:
+        logger.error(f"Premium check error: {e}")
+        await message.answer("❌ There was an error checking your premium status.")
+
+@dp.callback_query(F.data == "get_premium")
+async def get_premium_callback(call: CallbackQuery):
+    """Create invoice for premium purchase"""
+    await call.answer()
+    
+    if not PROVIDER_TOKEN:
+        await call.message.answer(
+            "❌ Payment system is not configured. Please contact admin."
+        )
+        return
+    
+    try:
+        invoice_link = await bot.create_invoice_link(
+            title="Y.I.T.I.O Premium",
+            description="30 days of ad-free video streaming",
+            payload=f"premium_{call.from_user.id}",
+            provider_token=PROVIDER_TOKEN,
+            currency="XTR",
+            prices=[LabeledPrice(label="Premium Access", amount=149)]
+        )
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Pay Now", url=invoice_link)],
+            [InlineKeyboardButton(text="🔙 Back", callback_data="back_to_premium")]
+        ])
+        
+        await call.message.edit_text(
+            "✨ *Upgrade to Y.I.T.I.O Premium*\n\n"
+            "💫 *Price:* 149 Stars (30 days)\n\n"
+            "*Benefits:*\n"
+            "• 🚫 No ads\n"
+            "• 😁 Support the project\n\n"
+            "Click 'Pay Now' to complete your purchase.",
+            parse_mode="HTML",
+            reply_markup=keyboard
+        )
+    except Exception as e:
+        logger.error(f"Error creating invoice: {e}")
+        await call.message.answer("❌ Error creating payment. Please try again later.")
+
+@dp.callback_query(F.data == "back_to_premium")
+async def back_to_premium_callback(call: CallbackQuery):
+    """Go back to premium status screen"""
+    await call.answer()
+    await cmd_premium(call.message)
+
+# Handle deep linking for /start premium
+@dp.message(F.text.startswith("/start premium"))
+async def start_premium(message: Message):
+    await cmd_premium(message)
+
+# ==================== ADMIN COMMANDS ====================
+
+class AdminUpload(StatesGroup):
+    waiting_video_url = State()
+    waiting_platform = State()
+
+PLATFORMS = ["YouTube", "TikTok", "Instagram"]
+
+@dp.message(F.from_user.id == ADMIN_ID, F.text == "/admin")
+async def admin_cmd(message: Message, state: FSMContext):
+    await state.clear()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📤 Add New Video", callback_data="add_video")]
+    ])
+    await message.answer("<b>Admin Control Panel</b>", reply_markup=kb, parse_mode="HTML")
+
+@dp.callback_query(F.data == "add_video")
+async def add_video_step1(call: CallbackQuery, state: FSMContext):
+    await call.message.edit_text("Please send the video URL (YouTube, TikTok, or Instagram):")
+    await state.set_state(AdminUpload.waiting_video_url)
+
+@dp.message(AdminUpload.waiting_video_url)
+async def add_video_step2(message: Message, state: FSMContext):
+    if not supabase:
+        await message.answer("❌ Database not connected. Cannot add video.")
+        await state.clear()
+        return
+    
+    url = message.text.strip()
+    
+    # Check if URL already exists
+    existing = supabase.table('videos').select('*').eq('url', url).execute()
+    
+    if existing.data:
+        await message.answer("❌ This video URL already exists in the database!")
+        await state.clear()
+        return
+    
+    await state.update_data(url=url)
+    
+    # Ask for platform
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="YouTube", callback_data="platform_YouTube")],
+        [InlineKeyboardButton(text="TikTok", callback_data="platform_TikTok")],
+        [InlineKeyboardButton(text="Instagram", callback_data="platform_Instagram")]
+    ])
+    
+    await message.answer("Select the platform:", reply_markup=kb)
+    await state.set_state(AdminUpload.waiting_platform)
+
+@dp.callback_query(F.data.startswith("platform_"))
+async def add_video_final(call: CallbackQuery, state: FSMContext):
+    if not supabase:
+        await call.message.edit_text("❌ Database not connected. Cannot add video.")
+        await state.clear()
+        return
+    
+    platform = call.data.split("_")[1]
+    user_data = await state.get_data()
+    url = user_data['url']
+    
+    # Save to database
+    supabase.table('videos').insert({
+        "url": url,
+        "platform": platform,
+        "embed_url": get_embed_url(url, platform),
+        "created_at": datetime.utcnow().isoformat()
+    }).execute()
+    
+    await call.message.edit_text(f"✅ Successfully added {platform} video!")
+    await state.clear()
+
+# ==================== MAIN ENTRY POINT ====================
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 10000))
+    host = os.environ.get("HOST", "0.0.0.0")
+    
+    logger.info(f"🌐 Starting server on {host}:{port}")
+    uvicorn.run(
+        app, 
+        host=host, 
+        port=port,
+        # These settings help with Render's timeout issues
+        timeout_keep_alive=65,
+        access_log=True
+        )
