@@ -1,3 +1,4 @@
+#[file name]: render.yaml
 services:
   - type: web
     name: yitio-bot
@@ -21,7 +22,9 @@ services:
         sync: false
       - key: ADMIN_TOKEN
         sync: false
+      - key: WEBHOOK_SECRET_TOKEN
+        value: YOUR_WEBHOOK_SECRET_HERE  # Add this line
       - key: RENDER_EXTERNAL_URL
-        value: https://y-i-t-i-o.onrender.com  # Add this
+        value: https://y-i-t-i-o.onrender.com
     autoDeploy: true
     healthCheckPath: /health
