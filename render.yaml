@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: yitio-bot
+    env: python
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: BOT_TOKEN
+        sync: false
+      - key: PROVIDER_TOKEN
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: ADMIN_ID
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+    autoDeploy: true
+    healthCheckPath: /health
