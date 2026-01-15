@@ -328,6 +328,8 @@ async def start_premium(message: Message):
 
 # ==================== STARTUP & SHUTDOWN ====================
 
+# In the startup_event function, replace the webhook setting section:
+
 @app.on_event("startup")
 async def startup_event():
     """Run startup tasks"""
@@ -357,19 +359,11 @@ async def startup_event():
     # Wait a moment for pinger to initialize
     await asyncio.sleep(2)
     
-    # Auto-set webhook
+    # Auto-set webhook - USE THE CORRECT PATTERN
     webhook_url = WEBHOOK_URL
     if not webhook_url:
-        # Auto-detect Render URL
-        service_name = os.environ.get("RENDER_SERVICE_NAME", "")
-        if service_name:
-            webhook_url = f"https://{service_name}.onrender.com/webhook"
-        else:
-            render_url = os.environ.get("RENDER_EXTERNAL_URL", "")
-            if render_url:
-                webhook_url = f"{render_url}/webhook"
-            else:
-                webhook_url = "https://yitio-bot.onrender.com/webhook"
+        # Use the pattern that's already working
+        webhook_url = "https://y-i-t-i-o.onrender.com/api/telegram-webhook"
     
     try:
         await bot.set_webhook(
@@ -384,7 +378,7 @@ async def startup_event():
         try:
             import httpx
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(webhook_url.replace("/webhook", "/health"))
+                response = await client.get("https://y-i-t-i-o.onrender.com/health")
                 logger.info(f"✅ Health check response: {response.status_code}")
         except Exception as e:
             logger.warning(f"⚠️ Could not test health endpoint: {e}")
