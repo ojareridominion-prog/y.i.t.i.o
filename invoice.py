@@ -119,5 +119,18 @@ async def get_premium_callback(call: CallbackQuery):
 async def back_to_premium_callback(call: CallbackQuery):
     """Go back to premium status screen"""
     await call.answer()
+    # Instead of importing cmd_premium, trigger it directly
+    from aiogram.types import Message as AiogramMessage
+    
+    # Create a fake message object to trigger cmd_premium
+    fake_message = AiogramMessage(
+        message_id=call.message.message_id,
+        date=call.message.date,
+        chat=call.message.chat,
+        text="/premium",
+        from_user=call.from_user
+    )
+    
+    # Import cmd_premium locally to avoid circular import
     from main import cmd_premium
-    await cmd_premium(call.message)
+    await cmd_premium(fake_message)
