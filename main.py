@@ -34,6 +34,18 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
+# Helper function to get Render URL
+def get_render_url():
+    """Get the correct Render URL"""
+    # Try different environment variables Render provides
+    render_url = os.environ.get("RENDER_EXTERNAL_URL", "")
+    if render_url:
+        return render_url
+    
+    # Fallback to your Render service name
+    service_name = os.environ.get("RENDER_SERVICE_NAME", "y-i-t-i-o")
+    return f"https://{service_name}.onrender.com"
+
 class AdminUpload(StatesGroup):
     waiting_video_url = State()
     waiting_platform = State()
@@ -112,15 +124,51 @@ async def handle_webhook(request: Request):
 @app.get("/set-webhook")
 async def set_webhook():
     """Set webhook URL dynamically"""
-    # Get domain from environment or use Render URL
-    webhook_domain = os.environ.get("RENDER_EXTERNAL_URL", "")
-    if not webhook_domain:
-        service_name = os.environ.get("RENDER_SERVICE_NAME", "yitio-bot")
-        webhook_domain = f"https://y-i-t-i-o.onrender.com"
+    webhook_url = f"{get_render_url()}/webhook"
     
-    webhook_url = f"{webhook_domain}/webhook"
-    await bot.set_webhook(url=webhook_url, drop_pending_updates=True)
-    return {"status": "Webhook set", "url": webhook_url}
+    try:
+        await bot.set_webhook(
+            url=webhook_url,
+            drop_pending_updates=True,
+            allowed_updates=["message", "callback_query", "pre_checkout_query"]
+        )
+        return {
+            "status": "success", 
+            "url": webhook_url,
+            "message": "Webhook set successfully"
+        }
+    except Exception as e:
+        logging.error(f"Error setting webhook: {e}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+@app.get("/webhook-info")
+async def webhook_info():
+    """Check current webhook status"""
+    try:
+        info = await bot.get_webhook_info()
+        return {
+            "url": info.url,
+            "has_custom_certificate": info.has_custom_certificate,
+            "pending_update_count": info.pending_update_count,
+            "last_error_date": info.last_error_date,
+            "last_error_message": info.last_error_message,
+            "max_connections": info.max_connections,
+            "allowed_updates": info.allowed_updates
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/delete-webhook")
+async def delete_webhook():
+    """Delete webhook (for debugging)"""
+    try:
+        result = await bot.delete_webhook(drop_pending_updates=True)
+        return {"success": True, "result": result}
+    except Exception as e:
+        return {"error": str(e)}
 
 # ==================== PAYMENT HANDLERS (STARS) ====================
 
@@ -467,180 +515,3 @@ async def cmd_premium(message: Message):
         logging.error(f"Premium check error: {e}")
         await message.answer("❌ There was an error checking your premium status.")
 
-@dp.callback_query(F.data == "get_premium")
-async def get_premium_callback(call: CallbackQuery):
-    """Create invoice for premium purchase"""
-    await call.answer()
-    
-    invoice_link = await bot.create_invoice_link(
-        title="Y.I.T.I.O Premium",
-        description="30 days of ad-free video streaming",
-        payload=f"premium_{call.from_user.id}",
-        provider_token=PROVIDER_TOKEN,
-        currency="XTR",
-        prices=[LabeledPrice(label="Premium Access", amount=149)]
-    )
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Pay Now", url=invoice_link)],
-        [InlineKeyboardButton(text="🔙 Back", callback_data="back_to_premium")]
-    ])
-    
-    await call.message.edit_text(
-        "✨ *Upgrade to Y.I.T.I.O Premium*\n\n"
-        "💫 *Price:* 149 Stars (30 days)\n\n"
-        "*Benefits:*\n"
-        "• 🚫 No ads\n"
-        "• 😁 Support the project\n\n"
-        "Click 'Pay Now' to complete your purchase.",
-        parse_mode="HTML",
-        reply_markup=keyboard
-    )
-
-@dp.callback_query(F.data == "back_to_premium")
-async def back_to_premium_callback(call: CallbackQuery):
-    """Go back to premium status screen"""
-    await call.answer()
-    await cmd_premium(call.message)
-
-# Handle deep linking for /start premium
-@dp.message(F.text.startswith("/start premium"))
-async def start_premium(message: Message):
-    await cmd_premium(message)
-
-# ==================== ADMIN COMMANDS ====================
-# ==================== ADMIN COMMANDS ====================
-
-@dp.message(F.from_user.id == ADMIN_ID, F.text == "/admin")
-async def admin_cmd(message: Message, state: FSMContext):
-    await state.clear()
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📤 Add New Video", callback_data="add_video")]
-    ])
-    await message.answer("<b>Admin Control Panel</b>", reply_markup=kb, parse_mode="HTML")
-
-@dp.callback_query(F.data == "add_video")
-async def add_video_step1(call: CallbackQuery, state: FSMContext):
-    await call.message.edit_text("Please send the video URL (YouTube, TikTok, or Instagram):")
-    await state.set_state(AdminUpload.waiting_video_url)
-
-@dp.message(AdminUpload.waiting_video_url)
-async def add_video_step2(message: Message, state: FSMContext):
-    url = message.text.strip()
-    
-    # Check if URL already exists
-    existing = supabase.table('videos').select('*').eq('url', url).execute()
-    
-    if existing.data:
-        await message.answer("❌ This video URL already exists in the database!")
-        await state.clear()
-        return
-    
-    await state.update_data(url=url)
-    
-    # Ask for platform
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="YouTube", callback_data="platform_YouTube")],
-        [InlineKeyboardButton(text="TikTok", callback_data="platform_TikTok")],
-        [InlineKeyboardButton(text="Instagram", callback_data="platform_Instagram")]
-    ])
-    
-    await message.answer("Select the platform:", reply_markup=kb)
-    await state.set_state(AdminUpload.waiting_platform)
-
-@dp.callback_query(F.data.startswith("platform_"))
-async def add_video_final(call: CallbackQuery, state: FSMContext):
-    platform = call.data.split("_")[1]
-    user_data = await state.get_data()
-    url = user_data['url']
-    
-    # Save to database
-    supabase.table('videos').insert({
-        "url": url,
-        "platform": platform,
-        "embed_url": get_embed_url(url, platform),
-        "created_at": datetime.utcnow().isoformat()
-    }).execute()
-    
-    await call.message.edit_text(f"✅ Successfully added {platform} video!")
-    await state.clear()
-
-# ==================== HEALTH & STARTUP ====================
-
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy", "service": "Y.I.T.I.O Bot", "timestamp": datetime.utcnow().isoformat()}
-
-@app.get("/")
-async def root():
-    return {
-        "message": "Y.I.T.I.O Bot API",
-        "status": "running",
-        "endpoints": {
-            "health": "/health",
-            "set_webhook": "/set-webhook",
-            "api_videos": "/api/videos",
-            "api_check_premium": "/api/check-premium"
-        }
-    }
-
-@app.on_event("startup")
-async def startup_event():
-    """Startup tasks"""
-    logging.info("🚀 Starting Y.I.T.I.O Bot...")
-    
-    # Set bot commands
-    from aiogram.types import BotCommand
-    commands = [
-        BotCommand(command="start", description="Start the bot"),
-        BotCommand(command="premium", description="Premium status & purchase")
-    ]
-    
-    if ADMIN_ID:
-        commands.append(BotCommand(command="admin", description="Admin panel"))
-    
-    try:
-        await bot.set_my_commands(commands)
-        logging.info("✅ Bot commands set successfully")
-    except Exception as e:
-        logging.error(f"❌ Error setting commands: {e}")
-    
-    # Auto-set webhook
-    webhook_domain = os.environ.get("RENDER_EXTERNAL_URL", "")
-    if not webhook_domain:
-        service_name = os.environ.get("RENDER_SERVICE_NAME", "yitio-bot")
-        webhook_domain = f"https://y-i-t-i-o.onrender.com"
-    
-    webhook_url = f"https://y-i-t-i-o.onrender.com/webhook"
-    
-    try:
-        await bot.set_webhook(
-            url=webhook_url,
-            drop_pending_updates=True,
-            allowed_updates=["message", "callback_query", "pre_checkout_query"]
-        )
-        logging.info(f"✅ Webhook set to: {webhook_url}")
-    except Exception as e:
-        logging.error(f"❌ Error setting webhook: {e}")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown"""
-    logging.info("🛑 Shutting down...")
-    await bot.session.close()
-    logging.info("✅ Cleanup complete")
-
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.environ.get("PORT", 10000))
-    host = os.environ.get("HOST", "0.0.0.0")
-    
-    logging.basicConfig(level=logging.INFO)
-    logging.info(f"🌐 Starting server on {host}:{port}")
-    uvicorn.run(
-        app, 
-        host=host, 
-        port=port,
-        timeout_keep_alive=65,
-        access_log=True
-                     )
