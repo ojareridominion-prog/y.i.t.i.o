@@ -215,7 +215,7 @@ async def get_user_data(request: Request):
 @dp.message(F.text == "/start")
 async def cmd_start(message: Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Let's Go!", web_app={"url": "https://YOUR-GITHUB-USERNAME.github.io/yitio/"})],
+        [InlineKeyboardButton(text="🚀 Let's Go!", web_app={"url": "https://ojareridominion-prog.github.io/y.i.t.i.o/"})],
         [InlineKeyboardButton(text="📢 Official Channel", url="https://t.me/yitio_channel")]
     ])
     await message.answer(
@@ -246,7 +246,7 @@ async def cmd_premium(message: Message):
             # User not in database - offer premium
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="⭐ Get Premium", callback_data="get_premium")],
-                [InlineKeyboardButton(text="🎬 Open Y.I.T.I.O", web_app={"url": "https://YOUR-GITHUB-USERNAME.github.io/yitio/"})]
+                [InlineKeyboardButton(text="🎬 Open Y.I.T.I.O", web_app={"url": "https://ojareridominion-prog.github.io/y.i.t.i.o/"})]
             ])
             await message.answer(
                 "✨ *Y.I.T.I.O Premium*\n\n"
@@ -303,7 +303,7 @@ async def cmd_premium(message: Message):
         # If we get here, user is not premium
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⭐ Get Premium", callback_data="get_premium")],
-            [InlineKeyboardButton(text="🎬 Open Y.I.T.I.O", web_app={"url": "https://YOUR-GITHUB-USERNAME.github.io/yitio/"})]
+            [InlineKeyboardButton(text="🎬 Open Y.I.T.I.O", web_app={"url": "https://ojareridominion-prog.github.io/y.i.t.i.o/"})]
         ])
         await message.answer(
             "✨ *Y.I.T.I.O Premium*\n\n"
