@@ -216,7 +216,7 @@ async def get_user_data(request: Request):
 async def cmd_start(message: Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚀 Let's Go!", web_app={"url": "https://ojareridominion-prog.github.io/y.i.t.i.o/"})],
-        [InlineKeyboardButton(text="📢 Official Channel", url="https://t.me/yitio_channel")]
+        [InlineKeyboardButton(text="📢 Official Channel", url="https://t.me/yit_io")]
     ])
     await message.answer(
         "🎬 *Y.I.T.I.O - Your Infinite Video Stream*\n\n"
