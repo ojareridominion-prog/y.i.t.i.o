@@ -32,11 +32,6 @@ const themesList = [
     {id: "theme-amber", top: "#332100", bottom: "#4d3000"}
 ];
 
-// --- VIDEO LOGIC ---
-function getPlatformClass(platform) {
-    return 'youtube-badge'; // Only YouTube now
-}
-
 // --- CORE FEED LOGIC ---
 async function loadFeed() {
     const feed = document.getElementById('feed');
@@ -62,11 +57,11 @@ async function loadFeed() {
         feed.innerHTML = data.map(item => {
             let embedUrl = item.embed_url || item.url;
             
-            // Ensure autoplay is always enabled for YouTube
+            // Ensure autoplay is always enabled for YouTube with sound
             if (embedUrl.includes('?')) {
-                embedUrl += '&autoplay=1&mute=0';
+                embedUrl += '&autoplay=1&mute=0&playsinline=1';
             } else {
-                embedUrl += '?autoplay=1&mute=0';
+                embedUrl += '?autoplay=1&mute=0&playsinline=1';
             }
             
             return `
@@ -79,66 +74,91 @@ async function loadFeed() {
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                         allowfullscreen
                         loading="lazy"
-                        allow="autoplay">
+                        allow="autoplay *; fullscreen *">
                     </iframe>
-                    <div class="platform-badge youtube-badge">
-                        YouTube
-                    </div>
                 </div>
             </div>
         `}).join('');
 
         if (activeSwiper) activeSwiper.destroy(true, true);
         
-        // Initialize Swiper with TikTok-like settings
+        // Initialize Swiper with TikTok-like settings - FIXED
         activeSwiper = new Swiper('#swiper', { 
             direction: 'vertical',
             slidesPerView: 1,
             spaceBetween: 0,
-            mousewheel: true,
+            mousewheel: {
+                forceToAxis: true,
+                sensitivity: 1,
+                releaseOnEdges: true
+            },
             touchRatio: 1,
             resistanceRatio: 0,
-            speed: 300,
+            speed: 400,
             followFinger: true,
             grabCursor: true,
+            allowTouchMove: true,
+            simulateTouch: true,
+            shortSwipes: true,
+            longSwipes: true,
+            longSwipesRatio: 0.5,
+            longSwipesMs: 300,
+            threshold: 10,
             on: {
                 reachEnd: function () {
                     setTimeout(() => loadFeed(), 1000);
                 },
                 slideChange: function () {
-                    // Pause all videos except current one
+                    // Autoplay current video and pause others
+                    const currentSlide = this.slides[this.activeIndex];
+                    const currentIframe = currentSlide.querySelector('iframe');
+                    
+                    // Play current video
+                    if (currentIframe && currentIframe.contentWindow) {
+                        try {
+                            currentIframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+                        } catch (e) {
+                            console.log("Could not play video via postMessage");
+                        }
+                    }
+                    
+                    // Pause all other videos
                     this.slides.forEach((slide, index) => {
-                        const iframe = slide.querySelector('iframe');
-                        if (iframe && iframe.contentWindow) {
-                            if (index === this.activeIndex) {
-                                // Play current video
-                                iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
-                            } else {
-                                // Pause all other videos
-                                iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+                        if (index !== this.activeIndex) {
+                            const iframe = slide.querySelector('iframe');
+                            if (iframe && iframe.contentWindow) {
+                                try {
+                                    iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+                                } catch (e) {
+                                    // Ignore errors
+                                }
                             }
                         }
                     });
                     
-                    const activeSlide = this.slides[this.activeIndex];
-                    const iframe = activeSlide.querySelector('iframe');
-                    if (iframe && iframe.src) {
-                        trackSeenVideo(iframe.src);
+                    if (currentIframe && currentIframe.src) {
+                        trackSeenVideo(currentIframe.src);
                     }
                     maybeShowAd();
                 },
                 init: function() {
                     // Play first video
-                    const activeSlide = this.slides[this.activeIndex];
-                    if(activeSlide) {
-                        const iframe = activeSlide.querySelector('iframe');
+                    const firstSlide = this.slides[0];
+                    if(firstSlide) {
+                        const iframe = firstSlide.querySelector('iframe');
                         if (iframe && iframe.src) {
                             trackSeenVideo(iframe.src);
                             
-                            // Play the first video
+                            // Auto-play first video
                             setTimeout(() => {
-                                iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
-                            }, 500);
+                                if (iframe.contentWindow) {
+                                    try {
+                                        iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+                                    } catch (e) {
+                                        console.log("Could not autoplay first video");
+                                    }
+                                }
+                            }, 800);
                         }
                     }
                 }
