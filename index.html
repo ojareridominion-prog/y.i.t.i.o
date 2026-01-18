@@ -112,6 +112,115 @@
             50% { opacity: 1; transform: scale(1.1); }
             100% { opacity: 0.7; transform: scale(1); }
         }
+
+        /* Video Container with Touch Overlay */
+.video-container {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Touch overlay - captures all touches */
+.touch-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 5;
+    background: transparent;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Play/Pause indicator */
+.play-indicator {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0);
+    width: 60px;
+    height: 60px;
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 50%;
+    z-index: 6;
+    opacity: 0;
+    transition: transform 0.3s, opacity 0.3s;
+    pointer-events: none;
+}
+
+.play-indicator::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-40%, -50%);
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 15px 0 15px 26px;
+    border-color: transparent transparent transparent white;
+}
+
+.play-indicator.play {
+    animation: showIndicator 0.5s ease;
+}
+
+.play-indicator.pause {
+    animation: showIndicator 0.5s ease;
+}
+
+.play-indicator.pause::before {
+    transform: translate(-50%, -50%);
+    width: 20px;
+    height: 30px;
+    background: white;
+    clip-path: polygon(0 0, 40% 0, 40% 100%, 0 100%, 0 0, 60% 0, 60% 100%, 100% 100%, 100% 0);
+    border: none;
+}
+
+@keyframes showIndicator {
+    0% {
+        transform: translate(-50%, -50%) scale(0);
+        opacity: 0;
+    }
+    50% {
+        transform: translate(-50%, -50%) scale(1.1);
+        opacity: 1;
+    }
+    100% {
+        transform: translate(-50%, -50%) scale(1);
+        opacity: 0.9;
+    }
+}
+
+/* Make iframe non-interactive for touch */
+.video-iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: #000;
+    pointer-events: none;
+}
+
+/* Ensure Swiper container captures all touches */
+#swiper {
+    position: absolute;
+    top: 56px;
+    bottom: 0;
+    width: 100%;
+    z-index: 10;
+    -webkit-overflow-scrolling: touch;
+}
+
+.swiper-slide {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    -webkit-tap-highlight-color: transparent;
+    }
     </style>
 </head>
 <body>
