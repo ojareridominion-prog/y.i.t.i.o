@@ -1,12 +1,15 @@
 import { nativeAds } from './ads.js';
 
-const API_URL = "https://y-i-t-i-o.onrender.com"; // Change to your Render URL
+const API_URL = "https://y-i-t-i-o.onrender.com";
 let activeSwiper = null;
 
 const SEEN_LIMIT = 50;
 const SEEN_KEY = "yitio-seen-history";
-const PREMIUM_CHECK_INTERVAL = 30000; // 30 seconds
+const PREMIUM_CHECK_INTERVAL = 30000;
 let premiumCheckInterval = null;
+
+// Track video states
+let videoStates = new Map(); // url -> {isPlaying: bool, iframe: element}
 
 // --- HISTORY TRACKING ---
 function getSeenList() {
@@ -32,6 +35,62 @@ const themesList = [
     {id: "theme-amber", top: "#332100", bottom: "#4d3000"}
 ];
 
+// --- VIDEO CONTROL FUNCTIONS ---
+function playVideo(iframe) {
+    if (iframe && iframe.contentWindow) {
+        try {
+            iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+            videoStates.set(iframe.src, {isPlaying: true, iframe: iframe});
+            
+            // Show play indicator briefly
+            const container = iframe.closest('.video-container');
+            if (container) {
+                const indicator = container.querySelector('.play-indicator');
+                if (indicator) {
+                    indicator.classList.remove('pause');
+                    indicator.classList.add('play');
+                    setTimeout(() => indicator.classList.remove('play'), 1000);
+                }
+            }
+        } catch (e) {
+            console.log("Could not play video");
+        }
+    }
+}
+
+function pauseVideo(iframe) {
+    if (iframe && iframe.contentWindow) {
+        try {
+            iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+            videoStates.set(iframe.src, {isPlaying: false, iframe: iframe});
+            
+            // Show pause indicator briefly
+            const container = iframe.closest('.video-container');
+            if (container) {
+                const indicator = container.querySelector('.play-indicator');
+                if (indicator) {
+                    indicator.classList.remove('play');
+                    indicator.classList.add('pause');
+                    setTimeout(() => indicator.classList.remove('pause'), 1000);
+                }
+            }
+        } catch (e) {
+            console.log("Could not pause video");
+        }
+    }
+}
+
+function toggleVideoPlayback(iframe) {
+    if (!iframe) return;
+    
+    const currentState = videoStates.get(iframe.src);
+    if (currentState && currentState.isPlaying) {
+        pauseVideo(iframe);
+    } else {
+        playVideo(iframe);
+    }
+}
+
 // --- CORE FEED LOGIC ---
 async function loadFeed() {
     const feed = document.getElementById('feed');
@@ -39,7 +98,6 @@ async function loadFeed() {
     feed.innerHTML = '<div class="swiper-slide" style="display:flex; align-items:center; justify-content:center;"><h3>Loading videos...</h3></div>';
 
     try {
-        // Only load YouTube videos
         const res = await fetch(`${API_URL}/api/videos?category=YouTube`);
         let data = await res.json();
 
@@ -59,9 +117,9 @@ async function loadFeed() {
             
             // Ensure autoplay is always enabled for YouTube with sound
             if (embedUrl.includes('?')) {
-                embedUrl += '&autoplay=1&mute=0&playsinline=1';
+                embedUrl += '&autoplay=1&mute=0&playsinline=1&controls=0&showinfo=0&modestbranding=1';
             } else {
-                embedUrl += '?autoplay=1&mute=0&playsinline=1';
+                embedUrl += '?autoplay=1&mute=0&playsinline=1&controls=0&showinfo=0&modestbranding=1';
             }
             
             return `
@@ -74,15 +132,20 @@ async function loadFeed() {
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                         allowfullscreen
                         loading="lazy"
-                        allow="autoplay *; fullscreen *">
+                        allow="autoplay *; fullscreen *"
+                        style="pointer-events: none;">
                     </iframe>
+                    <!-- Touch overlay - captures all touches -->
+                    <div class="touch-overlay" onclick="handleVideoTap(this)"></div>
+                    <!-- Play/Pause indicator -->
+                    <div class="play-indicator"></div>
                 </div>
             </div>
         `}).join('');
 
         if (activeSwiper) activeSwiper.destroy(true, true);
         
-        // Initialize Swiper with TikTok-like settings - FIXED
+        // Initialize Swiper with fixed touch handling
         activeSwiper = new Swiper('#swiper', { 
             direction: 'vertical',
             slidesPerView: 1,
@@ -103,22 +166,23 @@ async function loadFeed() {
             longSwipes: true,
             longSwipesRatio: 0.5,
             longSwipesMs: 300,
-            threshold: 10,
+            threshold: 5,
+            // IMPORTANT: Prevent iframe from capturing touch
+            preventInteractionOnTransition: true,
             on: {
                 reachEnd: function () {
                     setTimeout(() => loadFeed(), 1000);
                 },
                 slideChange: function () {
-                    // Autoplay current video and pause others
+                    // Play current video and pause others
                     const currentSlide = this.slides[this.activeIndex];
                     const currentIframe = currentSlide.querySelector('iframe');
                     
                     // Play current video
-                    if (currentIframe && currentIframe.contentWindow) {
-                        try {
-                            currentIframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
-                        } catch (e) {
-                            console.log("Could not play video via postMessage");
+                    if (currentIframe) {
+                        playVideo(currentIframe);
+                        if (currentIframe.src) {
+                            trackSeenVideo(currentIframe.src);
                         }
                     }
                     
@@ -126,19 +190,12 @@ async function loadFeed() {
                     this.slides.forEach((slide, index) => {
                         if (index !== this.activeIndex) {
                             const iframe = slide.querySelector('iframe');
-                            if (iframe && iframe.contentWindow) {
-                                try {
-                                    iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
-                                } catch (e) {
-                                    // Ignore errors
-                                }
+                            if (iframe) {
+                                pauseVideo(iframe);
                             }
                         }
                     });
                     
-                    if (currentIframe && currentIframe.src) {
-                        trackSeenVideo(currentIframe.src);
-                    }
                     maybeShowAd();
                 },
                 init: function() {
@@ -149,16 +206,10 @@ async function loadFeed() {
                         if (iframe && iframe.src) {
                             trackSeenVideo(iframe.src);
                             
-                            // Auto-play first video
+                            // Auto-play first video after a delay
                             setTimeout(() => {
-                                if (iframe.contentWindow) {
-                                    try {
-                                        iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
-                                    } catch (e) {
-                                        console.log("Could not autoplay first video");
-                                    }
-                                }
-                            }, 800);
+                                playVideo(iframe);
+                            }, 1000);
                         }
                     }
                 }
@@ -169,6 +220,13 @@ async function loadFeed() {
         console.error("Error loading feed:", e);
         feed.innerHTML = '<div class="swiper-slide" style="display:flex; align-items:center; justify-content:center;"><h3>Connection Error</h3></div>'; 
     }
+}
+
+// Handle video tap for play/pause
+function handleVideoTap(overlayElement) {
+    const container = overlayElement.closest('.video-container');
+    const iframe = container.querySelector('iframe');
+    toggleVideoPlayback(iframe);
 }
 
 // --- PREMIUM VERIFICATION ---
@@ -515,6 +573,7 @@ window.openPremium = openPremium;
 window.closePremium = closePremium;
 window.goPremium = goPremium;
 window.verifyPremiumStatus = verifyPremiumStatus;
+window.handleVideoTap = handleVideoTap;
 
 window.handleAdClick = (event) => {
     if (!event.target.classList.contains('close-ad-btn')) {
