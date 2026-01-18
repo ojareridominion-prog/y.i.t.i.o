@@ -2,7 +2,6 @@ import { nativeAds } from './ads.js';
 
 const API_URL = "https://y-i-t-i-o.onrender.com"; // Change to your Render URL
 let activeSwiper = null;
-let currentCategory = "All";
 
 const SEEN_LIMIT = 50;
 const SEEN_KEY = "yitio-seen-history";
@@ -35,26 +34,18 @@ const themesList = [
 
 // --- VIDEO LOGIC ---
 function getPlatformClass(platform) {
-    switch(platform) {
-        case 'YouTube': return 'youtube-badge';
-        case 'TikTok': return 'tiktok-badge';
-        case 'Instagram': return 'instagram-badge';
-        default: return '';
-    }
+    return 'youtube-badge'; // Only YouTube now
 }
 
 // --- CORE FEED LOGIC ---
-async function loadFeed(cat) {
-    currentCategory = cat;
+async function loadFeed() {
     const feed = document.getElementById('feed');
     
     feed.innerHTML = '<div class="swiper-slide" style="display:flex; align-items:center; justify-content:center;"><h3>Loading videos...</h3></div>';
-    
-    // Update active category button
-    document.querySelectorAll('.cat-btn').forEach(b => b.classList.toggle('active', b.innerText === cat));
 
     try {
-        const res = await fetch(`${API_URL}/api/videos?category=${encodeURIComponent(cat)}`);
+        // Only load YouTube videos
+        const res = await fetch(`${API_URL}/api/videos?category=YouTube`);
         let data = await res.json();
 
         if (data && data.length > 0) {
@@ -69,19 +60,13 @@ async function loadFeed(cat) {
         }
 
         feed.innerHTML = data.map(item => {
-            // For TikTok, we need special handling
             let embedUrl = item.embed_url || item.url;
             
-            // Ensure autoplay is always enabled
+            // Ensure autoplay is always enabled for YouTube
             if (embedUrl.includes('?')) {
-                embedUrl += '&autoplay=1';
+                embedUrl += '&autoplay=1&mute=0';
             } else {
-                embedUrl += '?autoplay=1';
-            }
-            
-            // For TikTok specifically
-            if (item.platform === "TikTok" && embedUrl.includes('tiktok.com/embed')) {
-                embedUrl += '&mute=0';
+                embedUrl += '?autoplay=1&mute=0';
             }
             
             return `
@@ -96,8 +81,8 @@ async function loadFeed(cat) {
                         loading="lazy"
                         allow="autoplay">
                     </iframe>
-                    <div class="platform-badge ${getPlatformClass(item.platform)}">
-                        ${item.platform}
+                    <div class="platform-badge youtube-badge">
+                        YouTube
                     </div>
                 </div>
             </div>
@@ -111,25 +96,39 @@ async function loadFeed(cat) {
             slidesPerView: 1,
             spaceBetween: 0,
             mousewheel: true,
-            speed: 300,
             touchRatio: 1,
-            slideToClickedSlide: true,
+            resistanceRatio: 0,
+            speed: 300,
+            followFinger: true,
+            grabCursor: true,
             on: {
                 reachEnd: function () {
-                    setTimeout(() => loadFeed(currentCategory), 1000);
+                    setTimeout(() => loadFeed(), 1000);
                 },
                 slideChange: function () {
+                    // Pause all videos except current one
+                    this.slides.forEach((slide, index) => {
+                        const iframe = slide.querySelector('iframe');
+                        if (iframe && iframe.contentWindow) {
+                            if (index === this.activeIndex) {
+                                // Play current video
+                                iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+                            } else {
+                                // Pause all other videos
+                                iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+                            }
+                        }
+                    });
+                    
                     const activeSlide = this.slides[this.activeIndex];
                     const iframe = activeSlide.querySelector('iframe');
                     if (iframe && iframe.src) {
                         trackSeenVideo(iframe.src);
-                        
-                        // Ensure the current video plays
-                        iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
                     }
                     maybeShowAd();
                 },
                 init: function() {
+                    // Play first video
                     const activeSlide = this.slides[this.activeIndex];
                     if(activeSlide) {
                         const iframe = activeSlide.querySelector('iframe');
@@ -137,7 +136,9 @@ async function loadFeed(cat) {
                             trackSeenVideo(iframe.src);
                             
                             // Play the first video
-                            iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+                            setTimeout(() => {
+                                iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+                            }, 500);
                         }
                     }
                 }
@@ -225,7 +226,7 @@ async function checkPremiumStatus(userId) {
                 statusEl.style.color = "#4CAF50";
                 
                 setTimeout(() => {
-                    loadFeed(currentCategory);
+                    loadFeed();
                     closePremium();
                 }, 2000);
             }
@@ -293,8 +294,8 @@ function applyTheme(themeId) {
 
 async function shareBot() {
     const shareData = {
-        title: 'Y.I.T.I.O',
-        text: '🎬 Watch endless YouTube Shorts, TikTok, and Instagram Reels all in one place! No more switching between apps! 🔥',
+        title: 'Y.I.T',
+        text: '🎬 Watch endless YouTube Shorts all in one place! No more switching between apps! 🔥',
         url: 'https://t.me/YITIO_bot'
     };
     try {
@@ -457,7 +458,7 @@ function initTelegramWebApp() {
         
         const user = tg.initDataUnsafe?.user;
         if (user) {
-            console.log("Y.I.T.I.O User ID:", user.id);
+            console.log("Y.I.T User ID:", user.id);
         }
     }
 }
@@ -467,12 +468,6 @@ window.onload = async () => {
     initTelegramWebApp();
     
     await verifyPremiumStatus();
-    
-    // Setup Categories
-    const categories = ["All", "YouTube", "TikTok", "Instagram"];
-    document.getElementById('catBar').innerHTML = categories.map(c => 
-        `<button class="cat-btn" onclick="loadFeed('${c}')">${c}</button>`
-    ).join('');
     
     // Setup Themes
     document.getElementById('themeGrid').innerHTML = themesList.map(t => `
@@ -485,7 +480,7 @@ window.onload = async () => {
     // Load Saved Theme & Initial Feed
     const savedTheme = localStorage.getItem("yitio-theme") || "theme-dark";
     applyTheme(savedTheme);
-    loadFeed("All");
+    loadFeed();
     
     addManualPremiumCheck();
 };
