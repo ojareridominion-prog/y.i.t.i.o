@@ -1,6 +1,6 @@
 # ===================================================
 # FILE: utils.py
-# SHARED UTILITY FUNCTIONS FOR Y.I.F.I.O BOT
+# SHARED UTILITY FUNCTIONS FOR Y.I.T.I.O BOT
 # ===================================================
 
 def extract_video_id(url: str, platform: str) -> str:
@@ -13,15 +13,16 @@ def extract_video_id(url: str, platform: str) -> str:
                 return url.split("youtu.be/")[1].split("?")[0]
             elif "v=" in url:
                 return url.split("v=")[1].split("&")[0]
-        elif platform == "Facebook":
-            if "facebook.com/watch/" in url:
-                return url.split("watch/")[1].split("?")[0]
-            elif "facebook.com/" in url and "/videos/" in url:
-                parts = url.split("/videos/")
+        elif platform == "TikTok":
+            if "tiktok.com/@" in url and "/video/" in url:
+                parts = url.split("/video/")
                 if len(parts) > 1:
-                    return parts[1].split("/")[0].split("?")[0]
-            elif "fb.watch/" in url:
-                return url.split("fb.watch/")[1].split("?")[0]
+                    return parts[1].split("?")[0]
+            elif "vm.tiktok.com/" in url:
+                # For short TikTok URLs, we'll use the full URL
+                return url
+            elif "tiktok.com/" in url and "/video/" in url:
+                return url.split("/video/")[1].split("/")[0].split("?")[0]
         elif platform == "Instagram":
             if "instagram.com/reel/" in url:
                 return url.split("reel/")[1].split("/")[0].split("?")[0]
@@ -37,14 +38,11 @@ def get_embed_url(url: str, platform: str) -> str:
     
     if platform == "YouTube":
         return f"https://www.youtube.com/embed/{video_id}?autoplay=1"
-    elif platform == "Facebook":
-        # Facebook embed URLs work differently
-        if "facebook.com/watch/" in url:
-            return f"https://www.facebook.com/plugins/video.php?href={url}&show_text=0&autoplay=1"
-        elif "fb.watch/" in url:
-            return f"https://www.facebook.com/plugins/video.php?href=https://www.facebook.com/watch/?v={video_id}&show_text=0&autoplay=1"
-        else:
-            return f"https://www.facebook.com/plugins/video.php?href={url}&show_text=0&autoplay=1"
+    elif platform == "TikTok":
+        # TikTok embed URL pattern
+        if "vm.tiktok.com/" in url:
+            return url  # Use original URL for short links
+        return f"https://www.tiktok.com/embed/v2/{video_id}?autoplay=1"
     elif platform == "Instagram":
         return f"https://www.instagram.com/p/{video_id}/embed/?autoplay=1"
     return url
@@ -61,5 +59,5 @@ def get_user_id_from_init_data(init_data: str):
     except Exception as e:
         # We'll import logging only when needed to avoid circular imports
         import logging
-        logging.getLogger("yifio_bot").error(f"Error parsing initData: {e}")
+        logging.getLogger("yitio_bot").error(f"Error parsing initData: {e}")
     return None
