@@ -1,6 +1,6 @@
 # ===================================================
 # FILE: main.py
-# Y.I.F.I.O BOT MAIN FILE
+# Y.I.T.I.O BOT MAIN FILE
 # ===================================================
 
 import os
@@ -34,7 +34,7 @@ import invoice
 import admin as admin_module
 
 # Initialize FastAPI
-app = FastAPI(title="Y.I.F.I.O Bot API")
+app = FastAPI(title="Y.I.T.I.O Bot API")
 
 # CORS Middleware
 app.add_middleware(
@@ -56,7 +56,7 @@ async def health_check():
     from shared import _pinger
     return {
         "status": "healthy",
-        "service": "Y.I.F.I.O Bot",
+        "service": "Y.I.T.I.O Bot",
         "timestamp": datetime.utcnow().isoformat(),
         "ping_service": "active" if _pinger else "inactive"
     }
@@ -66,7 +66,7 @@ async def root():
     """Root endpoint with service info"""
     from shared import _pinger
     return {
-        "message": "Y.I.F.I.O Bot API",
+        "message": "Y.I.T.I.O Bot API",
         "status": "running",
         "timestamp": datetime.utcnow().isoformat(),
         "endpoints": {
@@ -219,8 +219,8 @@ async def cmd_start(message: Message):
         [InlineKeyboardButton(text="📢 Official Channel", url="https://t.me/yit_io")]
     ])
     await message.answer(
-        "🎬 *Y.I.F.I.O - Your Infinite Video Stream*\n\n"
-        "Watch endless YouTube Shorts, Facebook, and Instagram Reels\n"
+        "🎬 *Y.I.T.I.O - Your Infinite Video Stream*\n\n"
+        "Watch endless YouTube Shorts, TikTok, and Instagram Reels\n"
         "All in one place, curated just for you!\n\n"
         "Click 'Let's Go!' to start watching 🎥",
         parse_mode="Markdown",
@@ -246,10 +246,10 @@ async def cmd_premium(message: Message):
             # User not in database - offer premium
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="⭐ Get Premium", callback_data="get_premium")],
-                [InlineKeyboardButton(text="🎬 Open Y.I.F.I.O", web_app={"url": "https://ojareridominion-prog.github.io/y.i.t.i.o/"})]
+                [InlineKeyboardButton(text="🎬 Open Y.I.T.I.O", web_app={"url": "https://ojareridominion-prog.github.io/y.i.t.i.o/"})]
             ])
             await message.answer(
-                "✨ *Y.I.F.I.O Premium*\n\n"
+                "✨ *Y.I.T.I.O Premium*\n\n"
                 "🔓 You are currently on the free plan.\n\n"
                 "✨ *Upgrade to Premium for:*\n"
                 "• 🚫 No ads\n"
@@ -303,10 +303,10 @@ async def cmd_premium(message: Message):
         # If we get here, user is not premium
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⭐ Get Premium", callback_data="get_premium")],
-            [InlineKeyboardButton(text="🎬 Open Y.I.F.I.O", web_app={"url": "https://ojareridominion-prog.github.io/y.i.t.i.o/"})]
+            [InlineKeyboardButton(text="🎬 Open Y.I.T.I.O", web_app={"url": "https://ojareridominion-prog.github.io/y.i.t.i.o/"})]
         ])
         await message.answer(
-            "✨ *Y.I.F.I.O Premium*\n\n"
+            "✨ *Y.I.T.I.O Premium*\n\n"
             "🔓 You are currently on the free plan.\n\n"
             "✨ *Upgrade to Premium for:*\n"
             "• 🚫 No ads\n"
@@ -333,7 +333,7 @@ async def start_premium(message: Message):
 @app.on_event("startup")
 async def startup_event():
     """Run startup tasks"""
-    logger.info("🚀 Starting Y.I.F.I.O Bot...")
+    logger.info("🚀 Starting Y.I.T.I.O Bot...")
     
     # Import here to avoid circular imports
     from shared import _pinger, bot, dp, WEBHOOK_URL, WEBHOOK_SECRET_TOKEN
@@ -419,4 +419,4 @@ if __name__ == "__main__":
         # These settings help with Render's timeout issues
         timeout_keep_alive=65,
         access_log=True
-    )
+)
