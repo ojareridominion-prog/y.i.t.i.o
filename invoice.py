@@ -1,6 +1,6 @@
 # ===================================================
 # FILE: invoice.py
-# PAYMENT HANDLING FOR Y.I.T.I.O BOT
+# PAYMENT HANDLING FOR Y.I.T BOT
 # ===================================================
 
 import logging
@@ -51,11 +51,11 @@ async def on_successful_payment(message: Message):
 
         # Send congratulatory message
         await message.answer(
-            "🎉 Payment successful! You are now a Y.I.T.I.O Premium member!\n\n"
+            "🎉 Payment successful! You are now a Y.I.T Premium member!\n\n"
             "✅ Your premium access is active for 30 days.\n"
             "✅ Ads have been removed from your experience.\n\n"
             "To refresh your premium status in the app:\n"
-            "1. Close and reopen the Y.I.T.I.O Mini App\n"
+            "1. Close and reopen the Y.I.T Mini App\n"
             "2. Or tap 'Check Premium Status' button\n\n"
             "Use /premium anytime to check your status."
         )
@@ -63,7 +63,7 @@ async def on_successful_payment(message: Message):
         # Send button to refresh the mini app
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔄 Refresh App", web_app={"url": "https://YOUR-GITHUB-USERNAME.github.io/yitio/"})],
-            [InlineKeyboardButton(text="🚀 Open Y.I.T.I.O", web_app={"url": "https://YOUR-GITHUB-USERNAME.github.io/yitio/"})]
+            [InlineKeyboardButton(text="🚀 Open Y.I.T", web_app={"url": "https://YOUR-GITHUB-USERNAME.github.io/yitio/"})]
         ])
         
         await message.answer(
@@ -88,7 +88,7 @@ async def get_premium_callback(call: CallbackQuery):
     
     try:
         invoice_link = await bot.create_invoice_link(
-            title="Y.I.T.I.O Premium",
+            title="Y.I.T Premium",
             description="30 days of ad-free video streaming",
             payload=f"premium_{call.from_user.id}",
             provider_token=PROVIDER_TOKEN,
@@ -102,7 +102,7 @@ async def get_premium_callback(call: CallbackQuery):
         ])
         
         await call.message.edit_text(
-            "✨ *Upgrade to Y.I.T.I.O Premium*\n\n"
+            "✨ *Upgrade to Y.I.T Premium*\n\n"
             "💫 *Price:* 149 Stars (30 days)\n\n"
             "*Benefits:*\n"
             "• 🚫 No ads\n"
