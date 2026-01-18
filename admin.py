@@ -37,7 +37,7 @@ async def admin_cmd(message: Message, state: FSMContext):
 @dp.callback_query(F.data == "add_video")
 async def add_video_step1(call: CallbackQuery, state: FSMContext):
     await call.answer()  # <-- ADD THIS LINE to acknowledge the callback
-    await call.message.edit_text("Please send the video URL (YouTube, TikTok, or Instagram):")
+    await call.message.edit_text("Please send the video URL (YouTube :")
     await state.set_state(AdminUpload.waiting_video_url)
 
 @dp.message(AdminUpload.waiting_video_url)
@@ -61,9 +61,7 @@ async def add_video_step2(message: Message, state: FSMContext):
     
     # Ask for platform
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="YouTube", callback_data="platform_YouTube")],
-        [InlineKeyboardButton(text="TikTok", callback_data="platform_TikTok")],
-        [InlineKeyboardButton(text="Instagram", callback_data="platform_Instagram")]
+        [InlineKeyboardButton(text="YouTube", callback_data="platform_YouTube")]
     ])
     
     await message.answer("Select the platform:", reply_markup=kb)
