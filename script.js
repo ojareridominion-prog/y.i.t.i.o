@@ -8,6 +8,7 @@ const SEEN_LIMIT = 50;
 const SEEN_KEY = "yitio-seen-history";
 const PREMIUM_CHECK_INTERVAL = 30000; // 30 seconds
 let premiumCheckInterval = null;
+let isMuted = true; // Start muted by default
 
 // --- HISTORY TRACKING ---
 function getSeenList() {
@@ -37,7 +38,7 @@ const themesList = [
 function getPlatformClass(platform) {
     switch(platform) {
         case 'YouTube': return 'youtube-badge';
-        case 'TikTok': return 'tiktok-badge';
+        case 'Facebook': return 'facebook-badge';
         case 'Instagram': return 'instagram-badge';
         default: return '';
     }
@@ -68,23 +69,33 @@ async function loadFeed(cat) {
             return;
         }
 
-        feed.innerHTML = data.map(item => `
+        feed.innerHTML = data.map(item => {
+            // Add autoplay parameter to URL
+            let embedUrl = item.embed_url || item.url;
+            if (embedUrl.includes('?')) {
+                embedUrl += '&autoplay=1';
+            } else {
+                embedUrl += '?autoplay=1';
+            }
+            
+            return `
             <div class="swiper-slide">
                 <div class="video-container">
                     <iframe 
                         class="video-iframe" 
-                        src="${item.embed_url || item.url}"
+                        src="${embedUrl}&mute=${isMuted ? 1 : 0}"
                         frameborder="0"
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                         allowfullscreen
-                        loading="lazy">
+                        loading="lazy"
+                        autoplay>
                     </iframe>
                     <div class="platform-badge ${getPlatformClass(item.platform)}">
                         ${item.platform}
                     </div>
                 </div>
             </div>
-        `).join('');
+        `}).join('');
 
         if (activeSwiper) activeSwiper.destroy(true, true);
         activeSwiper = new Swiper('#swiper', { 
@@ -258,15 +269,35 @@ function applyTheme(themeId) {
 }
 
 function toggleMute() {
-    const videos = document.querySelectorAll('.video-iframe');
-    // Mute/unmute logic can be added for videos if needed
+    isMuted = !isMuted;
+    
+    // Update mute button icon
+    const muteBtn = document.querySelector('.top-bar button:last-child');
+    if (muteBtn) {
+        muteBtn.textContent = isMuted ? '🔇' : '🔊';
+    }
+    
+    // Update all iframes
+    const iframes = document.querySelectorAll('.video-iframe');
+    iframes.forEach(iframe => {
+        const src = iframe.src;
+        // Update mute parameter in URL
+        if (src.includes('mute=')) {
+            const newSrc = src.replace(/mute=[0-1]/, `mute=${isMuted ? 1 : 0}`);
+            iframe.src = newSrc;
+        } else if (src.includes('?')) {
+            iframe.src = src + `&mute=${isMuted ? 1 : 0}`;
+        } else {
+            iframe.src = src + `?mute=${isMuted ? 1 : 0}`;
+        }
+    });
 }
 
 async function shareBot() {
     const shareData = {
-        title: 'Y.I.T.I.O',
-        text: '🎬 Watch endless YouTube Shorts, TikTok, and Instagram Reels all in one place! No more switching between apps! 🔥',
-        url: 'https://t.me/YITIO_bot'
+        title: 'Y.I.F.I.O',
+        text: '🎬 Watch endless YouTube Shorts, Facebook, and Instagram Reels all in one place! No more switching between apps! 🔥',
+        url: 'https://t.me/YIFIO_bot'
     };
     try {
         if (navigator.share) {
@@ -355,11 +386,11 @@ async function goPremium() {
     
     try {
         if (tg.openLink) {
-            const botLink = `https://t.me/YITIO_bot?start=premium_${userId}`;
+            const botLink = `https://t.me/YIFIO_bot?start=premium_${userId}`;
             tg.openLink(botLink);
             tg.close();
         } else {
-            const botLink = `https://t.me/YITIO_bot?start=premium_${userId}`;
+            const botLink = `https://t.me/YIFIO_bot?start=premium_${userId}`;
             window.open(botLink, '_blank');
         }
         
@@ -428,7 +459,7 @@ function initTelegramWebApp() {
         
         const user = tg.initDataUnsafe?.user;
         if (user) {
-            console.log("Y.I.T.I.O User ID:", user.id);
+            console.log("Y.I.F.I.O User ID:", user.id);
         }
     }
 }
@@ -440,7 +471,7 @@ window.onload = async () => {
     await verifyPremiumStatus();
     
     // Setup Categories
-    const categories = ["All", "YouTube", "TikTok", "Instagram"];
+    const categories = ["All", "YouTube", "Facebook", "Instagram"];
     document.getElementById('catBar').innerHTML = categories.map(c => 
         `<button class="cat-btn" onclick="loadFeed('${c}')">${c}</button>`
     ).join('');
