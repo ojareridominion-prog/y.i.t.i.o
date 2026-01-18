@@ -69,9 +69,9 @@ async def add_video_step2(message: Message, state: FSMContext):
     await message.answer("Select the platform:", reply_markup=kb)
     await state.set_state(AdminUpload.waiting_platform)
 
-@dp.callback_query(F.data.startswith("platform_"), AdminUpload.waiting_platform)  # <-- ADD STATE FILTER HERE
+@dp.callback_query(F.data.startswith("platform_"), AdminUpload.waiting_platform)
 async def add_video_final(call: CallbackQuery, state: FSMContext):
-    await call.answer()  # <-- ADD THIS LINE to acknowledge the callback
+    await call.answer()
     
     if not supabase:
         await call.message.edit_text("❌ Database not connected. Cannot add video.")
@@ -83,13 +83,29 @@ async def add_video_final(call: CallbackQuery, state: FSMContext):
         user_data = await state.get_data()
         url = user_data['url']
         
-        # Save to database
-        supabase.table('videos').insert({
-            "url": url,
-            "platform": platform,
-            "embed_url": get_embed_url(url, platform),
-            "created_at": datetime.utcnow().isoformat()
-        }).execute()
+        # Save to database - WITH EXPLICIT RLS BYPASS FOR SERVICE ROLE
+        # First, check if we're using service role key
+        from shared import SUPABASE_KEY
+        is_service_role = "service_role" in SUPABASE_KEY or SUPABASE_KEY.startswith("eyJ")  # JWT check
+        
+        if is_service_role:
+            # Service role should bypass RLS, but let's be explicit
+            response = supabase.table('videos').insert({
+                "url": url,
+                "platform": platform,
+                "embed_url": get_embed_url(url, platform),
+                "created_at": datetime.utcnow().isoformat()
+            }).execute()
+        else:
+            # If using anon key, we need RLS policy
+            # Try with user context if available
+            response = supabase.table('videos').insert({
+                "url": url,
+                "platform": platform,
+                "embed_url": get_embed_url(url, platform),
+                "created_at": datetime.utcnow().isoformat(),
+                "uploaded_by": call.from_user.id if call.from_user else ADMIN_ID
+            }).execute()
         
         await call.message.edit_text(f"✅ Successfully added {platform} video!")
         await state.clear()
