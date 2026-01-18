@@ -36,6 +36,7 @@ async def admin_cmd(message: Message, state: FSMContext):
 
 @dp.callback_query(F.data == "add_video")
 async def add_video_step1(call: CallbackQuery, state: FSMContext):
+    await call.answer()  # <-- ADD THIS LINE to acknowledge the callback
     await call.message.edit_text("Please send the video URL (YouTube, TikTok, or Instagram):")
     await state.set_state(AdminUpload.waiting_video_url)
 
@@ -68,27 +69,42 @@ async def add_video_step2(message: Message, state: FSMContext):
     await message.answer("Select the platform:", reply_markup=kb)
     await state.set_state(AdminUpload.waiting_platform)
 
-@dp.callback_query(F.data.startswith("platform_"))
+@dp.callback_query(F.data.startswith("platform_"), AdminUpload.waiting_platform)  # <-- ADD STATE FILTER HERE
 async def add_video_final(call: CallbackQuery, state: FSMContext):
+    await call.answer()  # <-- ADD THIS LINE to acknowledge the callback
+    
     if not supabase:
         await call.message.edit_text("❌ Database not connected. Cannot add video.")
         await state.clear()
         return
     
-    platform = call.data.split("_")[1]
-    user_data = await state.get_data()
-    url = user_data['url']
-    
-    # Save to database
-    supabase.table('videos').insert({
-        "url": url,
-        "platform": platform,
-        "embed_url": get_embed_url(url, platform),
-        "created_at": datetime.utcnow().isoformat()
-    }).execute()
-    
-    await call.message.edit_text(f"✅ Successfully added {platform} video!")
+    try:
+        platform = call.data.split("_")[1]
+        user_data = await state.get_data()
+        url = user_data['url']
+        
+        # Save to database
+        supabase.table('videos').insert({
+            "url": url,
+            "platform": platform,
+            "embed_url": get_embed_url(url, platform),
+            "created_at": datetime.utcnow().isoformat()
+        }).execute()
+        
+        await call.message.edit_text(f"✅ Successfully added {platform} video!")
+        await state.clear()
+        
+    except Exception as e:
+        logger.error(f"Error adding video: {e}")
+        await call.message.edit_text(f"❌ Error adding video: {str(e)[:200]}")
+        await state.clear()
+
+# Add a handler for when the user cancels or goes back
+@dp.callback_query(F.data == "cancel_upload")
+async def cancel_upload(call: CallbackQuery, state: FSMContext):
+    await call.answer("Cancelled")
     await state.clear()
+    await call.message.edit_text("❌ Video upload cancelled.")
 
 # ==================== ADMIN API ENDPOINTS ====================
 
