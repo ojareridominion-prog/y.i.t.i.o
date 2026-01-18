@@ -1,6 +1,6 @@
 # ===================================================
 # FILE: shared.py
-# SHARED VARIABLES FOR Y.I.T.I.O BOT
+# SHARED VARIABLES FOR Y.I.F.I.O BOT
 # ===================================================
 
 import os
@@ -31,7 +31,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger("yitio_bot")
+logger = logging.getLogger("yifio_bot")
 
 # Initialize Bot and Dispatcher
 bot = Bot(token=BOT_TOKEN) if BOT_TOKEN else None
