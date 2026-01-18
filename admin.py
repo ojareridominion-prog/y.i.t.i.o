@@ -1,6 +1,6 @@
 # ===================================================
 # FILE: admin.py
-# ADMIN PANEL FOR Y.I.T.I.O BOT
+# ADMIN PANEL FOR Y.I.F.I.O BOT
 # ===================================================
 
 import logging
@@ -22,7 +22,7 @@ class AdminUpload(StatesGroup):
     waiting_video_url = State()
     waiting_platform = State()
 
-PLATFORMS = ["YouTube", "TikTok", "Instagram"]
+PLATFORMS = ["YouTube", "Facebook", "Instagram"]
 
 # ==================== ADMIN COMMANDS ====================
 
@@ -37,7 +37,7 @@ async def admin_cmd(message: Message, state: FSMContext):
 @dp.callback_query(F.data == "add_video")
 async def add_video_step1(call: CallbackQuery, state: FSMContext):
     await call.answer()  # <-- ADD THIS LINE to acknowledge the callback
-    await call.message.edit_text("Please send the video URL (YouTube, TikTok, or Instagram):")
+    await call.message.edit_text("Please send the video URL (YouTube, Facebook, or Instagram):")
     await state.set_state(AdminUpload.waiting_video_url)
 
 @dp.message(AdminUpload.waiting_video_url)
@@ -62,7 +62,7 @@ async def add_video_step2(message: Message, state: FSMContext):
     # Ask for platform
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="YouTube", callback_data="platform_YouTube")],
-        [InlineKeyboardButton(text="TikTok", callback_data="platform_TikTok")],
+        [InlineKeyboardButton(text="Facebook", callback_data="platform_Facebook")],
         [InlineKeyboardButton(text="Instagram", callback_data="platform_Instagram")]
     ])
     
@@ -142,7 +142,7 @@ async def admin_stats(request: Request):
     try:
         # Get total videos by platform
         youtube_res = supabase.table("videos").select("count", count="exact").eq("platform", "YouTube").execute()
-        tiktok_res = supabase.table("videos").select("count", count="exact").eq("platform", "TikTok").execute()
+        facebook_res = supabase.table("videos").select("count", count="exact").eq("platform", "Facebook").execute()
         instagram_res = supabase.table("videos").select("count", count="exact").eq("platform", "Instagram").execute()
         
         # Get total users
@@ -160,9 +160,9 @@ async def admin_stats(request: Request):
         return {
             "videos": {
                 "youtube": youtube_res.count or 0,
-                "tiktok": tiktok_res.count or 0,
+                "facebook": facebook_res.count or 0,
                 "instagram": instagram_res.count or 0,
-                "total": (youtube_res.count or 0) + (tiktok_res.count or 0) + (instagram_res.count or 0)
+                "total": (youtube_res.count or 0) + (facebook_res.count or 0) + (instagram_res.count or 0)
             },
             "users": {
                 "total": total_users,
