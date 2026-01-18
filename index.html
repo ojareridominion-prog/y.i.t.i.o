@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Y.I.F.I.O</title>
+    <title>Y.I.T.I.O</title>
     
     <!-- Telegram SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -37,7 +37,7 @@
         
         .platform-badge { position:absolute; top:15px; right:15px; padding:4px 10px; border-radius:12px; font-size:10px; font-weight:bold; background:rgba(0,0,0,0.7); z-index:20; }
         .youtube-badge { background:#ff0000; }
-        .facebook-badge { background: #1877F2; }
+        .tiktok-badge { background: #000; color: #fff; border: 1px solid #fff; }
         .instagram-badge { background: #833AB4; background: linear-gradient(45deg, #833AB4, #FD1D1D, #F77737); }
         
         .loading { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); color:#fff; }
@@ -126,10 +126,9 @@
     <!-- Top Navigation Bar -->
     <div class="top-bar">
         <button onclick="toggleMenu()" style="background:none; border:none; color:#fff; font-size:24px; padding:15px; cursor:pointer;">☰</button>
-        <h2 style="flex:1; text-align:center; font-size:16px; margin:0;">Y.I.F.I.O</h2>
+        <h2 style="flex:1; text-align:center; font-size:16px; margin:0;">Y.I.T.I.O</h2>
         <!-- Premium indicator -->
         <div id="premiumIndicator" style="display:none;">⭐</div>
-        <button onclick="toggleMute()" style="background:none; border:none; color:#fff; font-size:22px; padding:15px; cursor:pointer;">🔇</button>
     </div>
 
     <!-- Category Bar -->
@@ -140,7 +139,7 @@
         <a href="#" class="menu-link" onclick="toggleMenu()" style="color:var(--accent)">✕ Close Menu</a>
         
         <div class="premium-box">
-            <div style="font-weight: bold; font-size: 18px;">Y.I.F.I.O PREMIUM ⭐</div>
+            <div style="font-weight: bold; font-size: 18px;">Y.I.T.I.O PREMIUM ⭐</div>
             <div style="font-size: 11px; opacity: 0.9; margin-top: 5px;">Enjoy ad-free video streaming</div>
             <button class="premium-btn-menu" onclick="openPremium()">UPGRADE NOW</button>
         </div>
@@ -167,14 +166,14 @@
     <!-- Premium Modal -->
     <div id="premiumModal" class="modal-overlay">
         <div class="premium-card">
-            <h1>✨ Y.I.F.I.O Premium</h1>
+            <h1>✨ Y.I.T.I.O Premium</h1>
             <div class="price-tag">
                 <span class="old-price">200 Stars</span>
                 <span class="new-price">149 Stars / 30 days</span>
             </div>
             <ul class="premium-list">
                 <li>🚫 No ads</li>
-                <li>😁 Support Y.I.F.I.O</li>
+                <li>😁 Support Y.I.T.I.O</li>
             </ul>
             
             <div style="background: rgba(255, 215, 0, 0.1); padding: 15px; border-radius: 10px; margin: 20px 0; text-align: center;">
