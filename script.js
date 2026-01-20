@@ -554,7 +554,49 @@ function addManualPremiumCheck() {
 }
 
 // --- TELEGRAM WEBAPP INIT ---
+// --- TELEGRAM WEBAPP INIT ---
 function initTelegramWebApp() {
     const tg = window.Telegram.WebApp;
     if (tg && tg.expand) {
-        tg.ex
+        tg.expand();
+        tg.enableClosingConfirmation();
+    }
+}
+
+// --- INITIALIZATION ---
+window.onload = async () => {
+    initTelegramWebApp();
+    await verifyPremiumStatus();
+    
+    document.getElementById('themeGrid').innerHTML = themesList.map(t => `
+        <div class="theme-circle" onclick="applyTheme('${t.id}')">
+            <div style="background:${t.top}"></div>
+            <div style="background:${t.bottom}"></div>
+        </div>
+    `).join('');
+
+    const savedTheme = localStorage.getItem("yitio-theme") || "theme-dark";
+    applyTheme(savedTheme);
+    loadFeed();
+    addManualPremiumCheck();
+};
+
+// --- GLOBAL EXPOSURE ---
+window.loadFeed = loadFeed;
+window.toggleMenu = toggleMenu;
+window.applyTheme = applyTheme;
+window.shareBot = shareBot;
+window.hideAd = hideAd;
+window.openPremium = openPremium;
+window.closePremium = closePremium;
+window.goPremium = goPremium;
+window.verifyPremiumStatus = verifyPremiumStatus;
+window.handleVideoTap = handleVideoTap;
+
+window.handleAdClick = (event) => {
+    if (!event.target.classList.contains('close-ad-btn')) {
+        if (typeof currentAdLink === 'function') currentAdLink();
+        else if (typeof currentAdLink === "string") window.open(currentAdLink, '_blank');
+        hideAd();
+    }
+};
