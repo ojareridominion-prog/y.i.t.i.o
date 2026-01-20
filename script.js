@@ -36,53 +36,68 @@ const themesList = [
 ];
 
 // --- VIDEO CONTROL FUNCTIONS ---
-function playVideo(iframe) {
+function postMessageToIframe(iframe, func) {
     if (iframe && iframe.contentWindow) {
         try {
-            iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
-            videoStates.set(iframe.src, {isPlaying: true, iframe: iframe});
-            
-            // Show play indicator briefly
-            const container = iframe.closest('.video-container');
-            if (container) {
-                const indicator = container.querySelector('.play-indicator');
-                if (indicator) {
-                    indicator.classList.remove('pause');
-                    indicator.classList.add('play');
-                    setTimeout(() => indicator.classList.remove('play'), 1000);
-                }
-            }
+            iframe.contentWindow.postMessage(JSON.stringify({
+                "event": "command",
+                "func": func,
+                "args": []
+            }), '*');
         } catch (e) {
-            console.log("Could not play video");
+            console.log(`Error sending ${func} to iframe`);
+        }
+    }
+}
+
+function playVideo(iframe) {
+    if (!iframe) return;
+    postMessageToIframe(iframe, "playVideo");
+    videoStates.set(iframe.src, {isPlaying: true, iframe: iframe});
+    
+    // Show play indicator briefly
+    const container = iframe.closest('.video-container');
+    if (container) {
+        const indicator = container.querySelector('.play-indicator');
+        if (indicator) {
+            indicator.classList.remove('pause');
+            indicator.classList.add('play');
+            setTimeout(() => indicator.classList.remove('play'), 1000);
         }
     }
 }
 
 function pauseVideo(iframe) {
-    if (iframe && iframe.contentWindow) {
-        try {
-            iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
-            videoStates.set(iframe.src, {isPlaying: false, iframe: iframe});
-            
-            // Show pause indicator briefly
-            const container = iframe.closest('.video-container');
-            if (container) {
-                const indicator = container.querySelector('.play-indicator');
-                if (indicator) {
-                    indicator.classList.remove('play');
-                    indicator.classList.add('pause');
-                    setTimeout(() => indicator.classList.remove('pause'), 1000);
-                }
-            }
-        } catch (e) {
-            console.log("Could not pause video");
+    if (!iframe) return;
+    postMessageToIframe(iframe, "pauseVideo");
+    videoStates.set(iframe.src, {isPlaying: false, iframe: iframe});
+    
+    // Show pause indicator briefly
+    const container = iframe.closest('.video-container');
+    if (container) {
+        const indicator = container.querySelector('.play-indicator');
+        if (indicator) {
+            indicator.classList.remove('play');
+            indicator.classList.add('pause');
+            setTimeout(() => indicator.classList.remove('pause'), 1000);
         }
     }
 }
 
+function stopAllOtherVideos(currentIndex, slides) {
+    slides.forEach((slide, index) => {
+        if (index !== currentIndex) {
+            const iframe = slide.querySelector('iframe');
+            if (iframe) {
+                // Force pause repeatedly to ensure it stops
+                pauseVideo(iframe);
+            }
+        }
+    });
+}
+
 function toggleVideoPlayback(iframe) {
     if (!iframe) return;
-    
     const currentState = videoStates.get(iframe.src);
     if (currentState && currentState.isPlaying) {
         pauseVideo(iframe);
@@ -112,14 +127,19 @@ async function loadFeed() {
             return;
         }
 
-        feed.innerHTML = data.map(item => {
+        feed.innerHTML = data.map((item, index) => {
             let embedUrl = item.embed_url || item.url;
             
-            // Ensure autoplay is always enabled for YouTube with sound
+            // FIX: Only autoplay the FIRST video (index 0). 
+            // All others get autoplay=0 to prevent simultaneous audio.
+            const isFirst = index === 0 ? 1 : 0;
+            
+            const params = `?autoplay=${isFirst}&mute=0&enablejsapi=1&playsinline=1&controls=0&showinfo=0&modestbranding=1`;
+            
             if (embedUrl.includes('?')) {
-                embedUrl += '&autoplay=1&mute=0&playsinline=1&controls=0&showinfo=0&modestbranding=1';
+                embedUrl += params.replace('?', '&');
             } else {
-                embedUrl += '?autoplay=1&mute=0&playsinline=1&controls=0&showinfo=0&modestbranding=1';
+                embedUrl += params;
             }
             
             return `
@@ -131,13 +151,10 @@ async function loadFeed() {
                         frameborder="0"
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                         allowfullscreen
-                        loading="lazy"
-                        allow="autoplay *; fullscreen *"
+                        loading="${index < 2 ? 'eager' : 'lazy'}" 
                         style="pointer-events: none;">
                     </iframe>
-                    <!-- Touch overlay - captures all touches -->
                     <div class="touch-overlay" onclick="handleVideoTap(this)"></div>
-                    <!-- Play/Pause indicator -->
                     <div class="play-indicator"></div>
                 </div>
             </div>
@@ -145,72 +162,59 @@ async function loadFeed() {
 
         if (activeSwiper) activeSwiper.destroy(true, true);
         
-        // Initialize Swiper with fixed touch handling
+        // Initialize Swiper
         activeSwiper = new Swiper('#swiper', { 
             direction: 'vertical',
             slidesPerView: 1,
             spaceBetween: 0,
-            mousewheel: {
-                forceToAxis: true,
-                sensitivity: 1,
-                releaseOnEdges: true
-            },
+            mousewheel: { forceToAxis: true, sensitivity: 1, releaseOnEdges: true },
             touchRatio: 1,
-            resistanceRatio: 0,
             speed: 400,
             followFinger: true,
-            grabCursor: true,
-            allowTouchMove: true,
-            simulateTouch: true,
-            shortSwipes: true,
-            longSwipes: true,
-            longSwipesRatio: 0.5,
-            longSwipesMs: 300,
-            threshold: 5,
-            // IMPORTANT: Prevent iframe from capturing touch
+            observer: true, 
+            observeParents: true,
             preventInteractionOnTransition: true,
             on: {
                 reachEnd: function () {
                     setTimeout(() => loadFeed(), 1000);
                 },
                 slideChange: function () {
-                    // Play current video and pause others
-                    const currentSlide = this.slides[this.activeIndex];
+                    // 1. Get current slide
+                    const currentIndex = this.activeIndex;
+                    const currentSlide = this.slides[currentIndex];
                     const currentIframe = currentSlide.querySelector('iframe');
                     
-                    // Play current video
+                    // 2. Stop ALL other videos immediately
+                    stopAllOtherVideos(currentIndex, this.slides);
+                    
+                    // 3. Play current video
                     if (currentIframe) {
                         playVideo(currentIframe);
-                        if (currentIframe.src) {
-                            trackSeenVideo(currentIframe.src);
-                        }
+                        if (currentIframe.src) trackSeenVideo(currentIframe.src);
                     }
-                    
-                    // Pause all other videos
-                    this.slides.forEach((slide, index) => {
-                        if (index !== this.activeIndex) {
-                            const iframe = slide.querySelector('iframe');
-                            if (iframe) {
-                                pauseVideo(iframe);
-                            }
-                        }
-                    });
                     
                     maybeShowAd();
                 },
                 init: function() {
-                    // Play first video
+                    // FIX: Robust startup logic
                     const firstSlide = this.slides[0];
                     if(firstSlide) {
                         const iframe = firstSlide.querySelector('iframe');
-                        if (iframe && iframe.src) {
-                            trackSeenVideo(iframe.src);
+                        if (iframe) {
+                            if(iframe.src) trackSeenVideo(iframe.src);
                             
-                            // Auto-play first video after a delay
-                            setTimeout(() => {
-                                playVideo(iframe);
-                            }, 1000);
+                            // Try to play immediately
+                            playVideo(iframe);
+                            
+                            // Retry mechanism to ensure it plays after loading
+                            setTimeout(() => playVideo(iframe), 500);
+                            setTimeout(() => playVideo(iframe), 1500);
                         }
+                    }
+                    
+                    // Ensure all others are stopped
+                    if (this.slides.length > 1) {
+                         stopAllOtherVideos(0, this.slides);
                     }
                 }
             }
@@ -236,16 +240,13 @@ async function verifyPremiumStatus() {
         const initData = tg.initData;
         
         if (!initData) {
-            console.log("No initData available, using localStorage");
             const isPremium = localStorage.getItem("isPremium") === "true";
             updatePremiumUI(isPremium);
             return isPremium;
         }
         
         const response = await fetch(`${API_URL}/api/user-data`, {
-            headers: {
-                'X-Telegram-Init-Data': initData
-            }
+            headers: { 'X-Telegram-Init-Data': initData }
         });
         
         const data = await response.json();
@@ -272,9 +273,7 @@ async function verifyPremiumStatus() {
 
 function startPremiumChecking(userId) {
     stopPremiumChecking();
-    
     checkPremiumStatus(userId);
-    
     premiumCheckInterval = setInterval(() => {
         checkPremiumStatus(userId);
     }, PREMIUM_CHECK_INTERVAL);
@@ -302,20 +301,12 @@ async function checkPremiumStatus(userId) {
             if (statusEl) {
                 statusEl.textContent = "✅ Premium activated! Refreshing...";
                 statusEl.style.color = "#4CAF50";
-                
-                setTimeout(() => {
-                    loadFeed();
-                    closePremium();
-                }, 2000);
+                setTimeout(() => { loadFeed(); closePremium(); }, 2000);
             }
-            
             return true;
         }
         return false;
-    } catch (error) {
-        console.log("Error checking premium status:", error);
-        return false;
-    }
+    } catch (error) { return false; }
 }
 
 function updatePremiumUI(isPremium) {
@@ -350,13 +341,8 @@ function updatePremiumUI(isPremium) {
     }
     
     const indicator = document.getElementById('premiumIndicator');
-    if (indicator) {
-        indicator.style.display = isPremium ? 'block' : 'none';
-    }
-    
-    if (isPremium) {
-        hideAd();
-    }
+    if (indicator) indicator.style.display = isPremium ? 'block' : 'none';
+    if (isPremium) hideAd();
 }
 
 // --- UI & THEME FUNCTIONS ---
@@ -422,14 +408,10 @@ function maybeShowAd() {
         hideAd();
         return;
     }
-    
     actionCount++;
     localStorage.setItem("actionCount", actionCount);
-    if (actionCount % 3 === 0) {
-        showAd();
-    } else {
-        hideAd();
-    }
+    if (actionCount % 3 === 0) showAd();
+    else hideAd();
 }
 
 // --- PREMIUM MODAL FUNCTIONS ---
@@ -443,11 +425,9 @@ function closePremium() {
 }
 
 async function goPremium() {
-    console.log("Starting premium purchase flow...");
     const tg = window.Telegram.WebApp;
     const btn = document.getElementById('btnBuy');
     const statusEl = document.getElementById('paymentStatus');
-    
     const userId = tg.initDataUnsafe?.user?.id;
     
     if (!userId) {
@@ -462,17 +442,15 @@ async function goPremium() {
     statusEl.style.color = "#ffd700";
     
     try {
+        const botLink = `https://t.me/YITIO_bot?start=premium_${userId}`;
         if (tg.openLink) {
-            const botLink = `https://t.me/YITIO_bot?start=premium_${userId}`;
             tg.openLink(botLink);
             tg.close();
         } else {
-            const botLink = `https://t.me/YITIO_bot?start=premium_${userId}`;
             window.open(botLink, '_blank');
         }
         
-        statusEl.textContent = "✅ Opened Telegram. Complete purchase in chat, then return here...";
-        
+        statusEl.textContent = "✅ Opened Telegram. Complete purchase in chat...";
         startPremiumChecking(userId);
         
         setTimeout(() => {
@@ -485,8 +463,7 @@ async function goPremium() {
         }, 600000);
         
     } catch (error) {
-        console.error("Error opening Telegram:", error);
-        statusEl.textContent = "❌ Error opening Telegram. Please try again.";
+        statusEl.textContent = "❌ Error opening Telegram.";
         btn.innerText = "Go Premium";
         btn.disabled = false;
     }
@@ -498,21 +475,11 @@ function addManualPremiumCheck() {
         const checkBtn = document.createElement('button');
         checkBtn.className = 'btn-check';
         checkBtn.innerHTML = '🔄 Check Premium Status';
-        checkBtn.style.cssText = `
-            background: transparent;
-            color: #4CAF50;
-            border: 1px solid #4CAF50;
-            padding: 10px;
-            width: 100%;
-            border-radius: 8px;
-            margin-top: 10px;
-            cursor: pointer;
-        `;
+        checkBtn.style.cssText = `background: transparent; color: #4CAF50; border: 1px solid #4CAF50; padding: 10px; width: 100%; border-radius: 8px; margin-top: 10px; cursor: pointer;`;
         checkBtn.onclick = async () => {
             const statusEl = document.getElementById('paymentStatus');
             statusEl.textContent = "Checking status...";
             statusEl.style.color = "#ffd700";
-            
             const verified = await verifyPremiumStatus();
             if (verified) {
                 statusEl.textContent = "✅ Premium is active!";
@@ -522,7 +489,6 @@ function addManualPremiumCheck() {
                 statusEl.style.color = "#ff4444";
             }
         };
-        
         premiumCard.appendChild(checkBtn);
     }
 }
@@ -533,21 +499,14 @@ function initTelegramWebApp() {
     if (tg && tg.expand) {
         tg.expand();
         tg.enableClosingConfirmation();
-        
-        const user = tg.initDataUnsafe?.user;
-        if (user) {
-            console.log("Y.I.T User ID:", user.id);
-        }
     }
 }
 
 // --- INITIALIZATION ---
 window.onload = async () => {
     initTelegramWebApp();
-    
     await verifyPremiumStatus();
     
-    // Setup Themes
     document.getElementById('themeGrid').innerHTML = themesList.map(t => `
         <div class="theme-circle" onclick="applyTheme('${t.id}')">
             <div style="background:${t.top}"></div>
@@ -555,11 +514,9 @@ window.onload = async () => {
         </div>
     `).join('');
 
-    // Load Saved Theme & Initial Feed
     const savedTheme = localStorage.getItem("yitio-theme") || "theme-dark";
     applyTheme(savedTheme);
     loadFeed();
-    
     addManualPremiumCheck();
 };
 
