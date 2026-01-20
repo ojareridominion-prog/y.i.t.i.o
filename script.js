@@ -605,4 +605,111 @@ async function goPremium() {
     }
 }
 
-function addManual
+function addManualPremiumCheck() {
+    const premiumCard = document.querySelector('.premium-card');
+    if (premiumCard) {
+        const checkBtn = document.createElement('button');
+        checkBtn.className = 'btn-check';
+        checkBtn.innerHTML = '🔄 Check Premium Status';
+        checkBtn.style.cssText = `
+            background: transparent;
+            color: #4CAF50;
+            border: 1px solid #4CAF50;
+            padding: 10px;
+            width: 100%;
+            border-radius: 8px;
+            margin-top: 10px;
+            cursor: pointer;
+        `;
+        checkBtn.onclick = async () => {
+            const statusEl = document.getElementById('paymentStatus');
+            statusEl.textContent = "Checking status...";
+            statusEl.style.color = "#ffd700";
+            
+            const verified = await verifyPremiumStatus();
+            if (verified) {
+                statusEl.textContent = "✅ Premium is active!";
+                statusEl.style.color = "#4CAF50";
+            } else {
+                statusEl.textContent = "❌ No active premium found";
+                statusEl.style.color = "#ff4444";
+            }
+        };
+        
+        premiumCard.appendChild(checkBtn);
+    }
+}
+
+// --- TELEGRAM WEBAPP INIT ---
+function initTelegramWebApp() {
+    const tg = window.Telegram.WebApp;
+    if (tg && tg.expand) {
+        tg.expand();
+        tg.enableClosingConfirmation();
+        
+        const user = tg.initDataUnsafe?.user;
+        if (user) {
+            console.log("Y.I.T User ID:", user.id);
+        }
+    }
+}
+
+// Cleanup function
+function cleanupPlayers() {
+    youtubePlayers.forEach((player, index) => {
+        if (player.destroy) player.destroy();
+    });
+    youtubePlayers.clear();
+    currentPlayingIndex = -1;
+}
+
+// --- INITIALIZATION ---
+window.onload = async () => {
+    initTelegramWebApp();
+    
+    await verifyPremiumStatus();
+    
+    // Setup Themes
+    document.getElementById('themeGrid').innerHTML = themesList.map(t => `
+        <div class="theme-circle" onclick="applyTheme('${t.id}')">
+            <div style="background:${t.top}"></div>
+            <div style="background:${t.bottom}"></div>
+        </div>
+    `).join('');
+
+    // Load Saved Theme & Initial Feed
+    const savedTheme = localStorage.getItem("yitio-theme") || "theme-dark";
+    applyTheme(savedTheme);
+    
+    // Reset interaction state
+    hasUserInteracted = false;
+    isFirstInteraction = true;
+    
+    loadFeed();
+    
+    addManualPremiumCheck();
+};
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', cleanupPlayers);
+
+// --- GLOBAL EXPOSURE ---
+window.loadFeed = loadFeed;
+window.toggleMenu = toggleMenu;
+window.applyTheme = applyTheme;
+window.shareBot = shareBot;
+window.hideAd = hideAd;
+window.openPremium = openPremium;
+window.closePremium = closePremium;
+window.goPremium = goPremium;
+window.verifyPremiumStatus = verifyPremiumStatus;
+window.handleVideoTap = handleVideoTap;
+window.cleanupPlayers = cleanupPlayers;
+
+window.handleAdClick = (event) => {
+    if (!event.target.classList.contains('close-ad-btn')) {
+        if (typeof currentAdLink === 'function') currentAdLink();
+        else if (typeof currentAdLink === "string") window.open(currentAdLink, '_blank');
+        hideAd();
+    }
+};
