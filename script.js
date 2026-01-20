@@ -9,7 +9,50 @@ const PREMIUM_CHECK_INTERVAL = 30000;
 let premiumCheckInterval = null;
 
 // Track video states
-let videoStates = new Map(); // url -> {isPlaying: bool, iframe: element}
+let videoStates = new Map(); // url -> {isPlaying: bool, iframe: element, player: null}
+let userHasInteracted = false;
+let isFirstLoad = true;
+
+// --- GHOST CLICK FOR INITIAL INTERACTION ---
+function triggerInitialInteraction() {
+    if (!userHasInteracted) {
+        console.log("Triggering initial interaction...");
+        userHasInteracted = true;
+        
+        // Create a synthetic click event
+        const event = new MouseEvent('click', {
+            view: window,
+            bubbles: true,
+            cancelable: true
+        });
+        
+        // Dispatch on document
+        document.dispatchEvent(event);
+        
+        // Also trigger on body
+        document.body.click();
+        
+        // Play current video if exists
+        if (activeSwiper) {
+            const currentSlide = activeSwiper.slides[activeSwiper.activeIndex];
+            const iframe = currentSlide?.querySelector('iframe');
+            if (iframe) {
+                playVideo(iframe);
+            }
+        }
+    }
+}
+
+// Trigger ghost click after a short delay on page load
+setTimeout(triggerInitialInteraction, 1000);
+
+// Also trigger on any user interaction
+document.addEventListener('click', () => {
+    if (!userHasInteracted) {
+        userHasInteracted = true;
+        console.log("User interacted, enabling autoplay");
+    }
+});
 
 // --- HISTORY TRACKING ---
 function getSeenList() {
@@ -37,47 +80,93 @@ const themesList = [
 
 // --- VIDEO CONTROL FUNCTIONS ---
 function playVideo(iframe) {
-    if (iframe && iframe.contentWindow) {
-        try {
-            iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
-            videoStates.set(iframe.src, {isPlaying: true, iframe: iframe});
-            
-            // Show play indicator briefly
-            const container = iframe.closest('.video-container');
-            if (container) {
-                const indicator = container.querySelector('.play-indicator');
-                if (indicator) {
-                    indicator.classList.remove('pause');
-                    indicator.classList.add('play');
-                    setTimeout(() => indicator.classList.remove('play'), 1000);
-                }
+    if (!iframe) return;
+    
+    const currentState = videoStates.get(iframe.src);
+    if (currentState && currentState.isPlaying) return;
+    
+    try {
+        // Send play command
+        iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+        
+        // Update state
+        videoStates.set(iframe.src, {
+            isPlaying: true, 
+            iframe: iframe,
+            isMuted: iframe.src.includes('mute=1')
+        });
+        
+        // Show play indicator
+        const container = iframe.closest('.video-container');
+        if (container) {
+            const indicator = container.querySelector('.play-indicator');
+            if (indicator) {
+                indicator.classList.remove('pause');
+                indicator.classList.add('play');
+                setTimeout(() => indicator.classList.remove('play'), 1000);
             }
-        } catch (e) {
-            console.log("Could not play video");
         }
+        
+        console.log("Playing video:", iframe.src);
+    } catch (e) {
+        console.log("Could not play video:", e);
     }
 }
 
 function pauseVideo(iframe) {
-    if (iframe && iframe.contentWindow) {
-        try {
-            iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
-            videoStates.set(iframe.src, {isPlaying: false, iframe: iframe});
-            
-            // Show pause indicator briefly
-            const container = iframe.closest('.video-container');
-            if (container) {
-                const indicator = container.querySelector('.play-indicator');
-                if (indicator) {
-                    indicator.classList.remove('play');
-                    indicator.classList.add('pause');
-                    setTimeout(() => indicator.classList.remove('pause'), 1000);
-                }
+    if (!iframe) return;
+    
+    try {
+        // Send pause command
+        iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+        
+        // Update state
+        videoStates.set(iframe.src, {
+            isPlaying: false, 
+            iframe: iframe,
+            isMuted: iframe.src.includes('mute=1')
+        });
+        
+        // Show pause indicator
+        const container = iframe.closest('.video-container');
+        if (container) {
+            const indicator = container.querySelector('.play-indicator');
+            if (indicator) {
+                indicator.classList.remove('play');
+                indicator.classList.add('pause');
+                setTimeout(() => indicator.classList.remove('pause'), 1000);
             }
-        } catch (e) {
-            console.log("Could not pause video");
         }
+        
+        console.log("Paused video:", iframe.src);
+    } catch (e) {
+        console.log("Could not pause video:", e);
     }
+}
+
+function stopAllVideos() {
+    console.log("Stopping all videos...");
+    
+    // Stop all iframes in the document
+    document.querySelectorAll('iframe.video-iframe').forEach(iframe => {
+        if (iframe && iframe.contentWindow) {
+            try {
+                // Stop the video
+                iframe.contentWindow.postMessage('{"event":"command","func":"stopVideo","args":""}', '*');
+                
+                // Also pause just in case
+                iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+                
+                videoStates.set(iframe.src, {
+                    isPlaying: false,
+                    iframe: iframe,
+                    isMuted: true
+                });
+            } catch (e) {
+                console.log("Error stopping video:", e);
+            }
+        }
+    });
 }
 
 function toggleVideoPlayback(iframe) {
@@ -112,14 +201,18 @@ async function loadFeed() {
             return;
         }
 
+        // Stop all existing videos before loading new ones
+        stopAllVideos();
+        
         feed.innerHTML = data.map(item => {
             let embedUrl = item.embed_url || item.url;
             
-            // Ensure autoplay is always enabled for YouTube with sound
+            // CRITICAL: Start with muted autoplay for browser compliance
+            // We'll unmute only the active video
             if (embedUrl.includes('?')) {
-                embedUrl += '&autoplay=1&mute=0&playsinline=1&controls=0&showinfo=0&modestbranding=1';
+                embedUrl += '&autoplay=1&mute=1&playsinline=1&controls=0&showinfo=0&modestbranding=1&enablejsapi=1&rel=0';
             } else {
-                embedUrl += '?autoplay=1&mute=0&playsinline=1&controls=0&showinfo=0&modestbranding=1';
+                embedUrl += '?autoplay=1&mute=1&playsinline=1&controls=0&showinfo=0&modestbranding=1&enablejsapi=1&rel=0';
             }
             
             return `
@@ -173,45 +266,48 @@ async function loadFeed() {
                 reachEnd: function () {
                     setTimeout(() => loadFeed(), 1000);
                 },
-                slideChange: function () {
-                    // Play current video and pause others
+                slideChangeTransitionStart: function () {
+                    // Pause previous video BEFORE transition
+                    const prevSlide = this.slides[this.previousIndex];
+                    if (prevSlide) {
+                        const prevIframe = prevSlide.querySelector('iframe');
+                        if (prevIframe) {
+                            pauseVideo(prevIframe);
+                        }
+                    }
+                },
+                slideChangeTransitionEnd: function () {
+                    // Play new video AFTER transition
                     const currentSlide = this.slides[this.activeIndex];
-                    const currentIframe = currentSlide.querySelector('iframe');
-                    
-                    // Play current video
-                    if (currentIframe) {
-                        playVideo(currentIframe);
-                        if (currentIframe.src) {
+                    if (currentSlide) {
+                        const currentIframe = currentSlide.querySelector('iframe');
+                        if (currentIframe) {
+                            // Unmute and play the current video
+                            unmuteVideo(currentIframe);
+                            playVideo(currentIframe);
                             trackSeenVideo(currentIframe.src);
                         }
                     }
                     
-                    // Pause all other videos
-                    this.slides.forEach((slide, index) => {
-                        if (index !== this.activeIndex) {
-                            const iframe = slide.querySelector('iframe');
-                            if (iframe) {
-                                pauseVideo(iframe);
-                            }
-                        }
-                    });
-                    
                     maybeShowAd();
                 },
                 init: function() {
-                    // Play first video
+                    // Play first video muted initially
                     const firstSlide = this.slides[0];
                     if(firstSlide) {
                         const iframe = firstSlide.querySelector('iframe');
                         if (iframe && iframe.src) {
                             trackSeenVideo(iframe.src);
                             
-                            // Auto-play first video after a delay
+                            // Play first video muted after a delay
                             setTimeout(() => {
                                 playVideo(iframe);
-                            }, 1000);
+                            }, 1500);
                         }
                     }
+                    
+                    // Reset flag
+                    isFirstLoad = false;
                 }
             }
         });
@@ -222,10 +318,41 @@ async function loadFeed() {
     }
 }
 
+// Unmute a specific video
+function unmuteVideo(iframe) {
+    if (!iframe) return;
+    
+    try {
+        // Send unmute command
+        iframe.contentWindow.postMessage('{"event":"command","func":"unMute","args":""}', '*');
+        
+        // Update the src to unmute for future loads
+        if (iframe.src.includes('mute=1')) {
+            iframe.src = iframe.src.replace('mute=1', 'mute=0');
+        }
+        
+        console.log("Unmuted video:", iframe.src);
+    } catch (e) {
+        console.log("Could not unmute video:", e);
+    }
+}
+
 // Handle video tap for play/pause
 function handleVideoTap(overlayElement) {
+    // Mark user interaction for autoplay
+    if (!userHasInteracted) {
+        userHasInteracted = true;
+        triggerInitialInteraction();
+    }
+    
     const container = overlayElement.closest('.video-container');
     const iframe = container.querySelector('iframe');
+    
+    // Unmute on first tap
+    if (iframe.src.includes('mute=1')) {
+        unmuteVideo(iframe);
+    }
+    
     toggleVideoPlayback(iframe);
 }
 
@@ -478,107 +605,4 @@ async function goPremium() {
         setTimeout(() => {
             stopPremiumChecking();
             if (localStorage.getItem("isPremium") !== "true") {
-                statusEl.textContent = "❌ Purchase timeout. Please try again.";
-                btn.innerText = "Go Premium";
-                btn.disabled = false;
-            }
-        }, 600000);
-        
-    } catch (error) {
-        console.error("Error opening Telegram:", error);
-        statusEl.textContent = "❌ Error opening Telegram. Please try again.";
-        btn.innerText = "Go Premium";
-        btn.disabled = false;
-    }
-}
-
-function addManualPremiumCheck() {
-    const premiumCard = document.querySelector('.premium-card');
-    if (premiumCard) {
-        const checkBtn = document.createElement('button');
-        checkBtn.className = 'btn-check';
-        checkBtn.innerHTML = '🔄 Check Premium Status';
-        checkBtn.style.cssText = `
-            background: transparent;
-            color: #4CAF50;
-            border: 1px solid #4CAF50;
-            padding: 10px;
-            width: 100%;
-            border-radius: 8px;
-            margin-top: 10px;
-            cursor: pointer;
-        `;
-        checkBtn.onclick = async () => {
-            const statusEl = document.getElementById('paymentStatus');
-            statusEl.textContent = "Checking status...";
-            statusEl.style.color = "#ffd700";
-            
-            const verified = await verifyPremiumStatus();
-            if (verified) {
-                statusEl.textContent = "✅ Premium is active!";
-                statusEl.style.color = "#4CAF50";
-            } else {
-                statusEl.textContent = "❌ No active premium found";
-                statusEl.style.color = "#ff4444";
-            }
-        };
-        
-        premiumCard.appendChild(checkBtn);
-    }
-}
-
-// --- TELEGRAM WEBAPP INIT ---
-function initTelegramWebApp() {
-    const tg = window.Telegram.WebApp;
-    if (tg && tg.expand) {
-        tg.expand();
-        tg.enableClosingConfirmation();
-        
-        const user = tg.initDataUnsafe?.user;
-        if (user) {
-            console.log("Y.I.T User ID:", user.id);
-        }
-    }
-}
-
-// --- INITIALIZATION ---
-window.onload = async () => {
-    initTelegramWebApp();
-    
-    await verifyPremiumStatus();
-    
-    // Setup Themes
-    document.getElementById('themeGrid').innerHTML = themesList.map(t => `
-        <div class="theme-circle" onclick="applyTheme('${t.id}')">
-            <div style="background:${t.top}"></div>
-            <div style="background:${t.bottom}"></div>
-        </div>
-    `).join('');
-
-    // Load Saved Theme & Initial Feed
-    const savedTheme = localStorage.getItem("yitio-theme") || "theme-dark";
-    applyTheme(savedTheme);
-    loadFeed();
-    
-    addManualPremiumCheck();
-};
-
-// --- GLOBAL EXPOSURE ---
-window.loadFeed = loadFeed;
-window.toggleMenu = toggleMenu;
-window.applyTheme = applyTheme;
-window.shareBot = shareBot;
-window.hideAd = hideAd;
-window.openPremium = openPremium;
-window.closePremium = closePremium;
-window.goPremium = goPremium;
-window.verifyPremiumStatus = verifyPremiumStatus;
-window.handleVideoTap = handleVideoTap;
-
-window.handleAdClick = (event) => {
-    if (!event.target.classList.contains('close-ad-btn')) {
-        if (typeof currentAdLink === 'function') currentAdLink();
-        else if (typeof currentAdLink === "string") window.open(currentAdLink, '_blank');
-        hideAd();
-    }
-};
+                statusEl.textContent
